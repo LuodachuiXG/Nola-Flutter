@@ -27,6 +27,8 @@ dependencies:
   file_picker: ^10.2.0
   # 分享导出的备份文件
   share_plus: ^12.0.0
+  # Markdown 预览（WebView 渲染）
+  webview_flutter: ^4.13.0
 
 dev_dependencies:
   flutter_test:
@@ -65,3 +67,4 @@ flutter:
     - assets/nola_logo.png
     - assets/nola_icon.png
     - assets/nola_icon_foreground.png
+    - assets/markdown/

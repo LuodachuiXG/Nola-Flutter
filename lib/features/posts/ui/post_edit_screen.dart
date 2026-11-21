@@ -7,6 +7,7 @@ import '../../../core/network/api_exception.dart';
 import '../../../core/utils/formatters.dart';
 import '../../../shared/widgets/async_value_widget.dart';
 import '../../../shared/widgets/dialogs.dart';
+import '../../../shared/widgets/markdown_preview_view.dart';
 import '../providers/post_providers.dart';
 import 'post_setting_sheet.dart';
 
@@ -160,6 +161,9 @@ class _EditorBody extends ConsumerStatefulWidget {
 class _EditorBodyState extends ConsumerState<_EditorBody> {
   late TextEditingController _controller;
 
+  /// 是否处于预览模式（隐藏编辑框，用 WebView 渲染 Markdown）。
+  bool _previewing = false;
+
   @override
   void initState() {
     super.initState();
@@ -219,6 +223,12 @@ class _EditorBodyState extends ConsumerState<_EditorBody> {
                         ? null
                         : (_) => _showDraftSheet(context),
                   ),
+                  const SizedBox(width: 8),
+                  FilterChip(
+                    label: const Text('预览'),
+                    selected: _previewing,
+                    onSelected: (_) => setState(() => _previewing = !_previewing),
+                  ),
                   const Spacer(),
                   Text(
                     '${state.content.length} 字',
@@ -232,27 +242,37 @@ class _EditorBodyState extends ConsumerState<_EditorBody> {
             Expanded(
               child: state.loadingContent
                   ? const Center(child: CircularProgressIndicator())
-                  : Padding(
-                      padding: const EdgeInsets.all(12),
-                      child: TextField(
-                        controller: _controller,
-                        maxLines: null,
-                        expands: true,
-                        textAlignVertical: TextAlignVertical.top,
-                        keyboardType: TextInputType.multiline,
-                        style: const TextStyle(
-                          fontFamily: 'monospace',
-                          fontSize: 14,
-                          height: 1.6,
+                  : _previewing
+                      ? Padding(
+                          padding: const EdgeInsets.all(12),
+                          child: ClipRRect(
+                            borderRadius: BorderRadius.circular(12),
+                            child: MarkdownPreviewView(
+                              content: state.content,
+                            ),
+                          ),
+                        )
+                      : Padding(
+                          padding: const EdgeInsets.all(12),
+                          child: TextField(
+                            controller: _controller,
+                            maxLines: null,
+                            expands: true,
+                            textAlignVertical: TextAlignVertical.top,
+                            keyboardType: TextInputType.multiline,
+                            style: const TextStyle(
+                              fontFamily: 'monospace',
+                              fontSize: 14,
+                              height: 1.6,
+                            ),
+                            decoration: const InputDecoration(
+                              hintText: '使用 Markdown 撰写文章内容…',
+                              border: InputBorder.none,
+                              contentPadding: EdgeInsets.zero,
+                            ),
+                            onChanged: notifier.updateContent,
+                          ),
                         ),
-                        decoration: const InputDecoration(
-                          hintText: '使用 Markdown 撰写文章内容…',
-                          border: InputBorder.none,
-                          contentPadding: EdgeInsets.zero,
-                        ),
-                        onChanged: notifier.updateContent,
-                      ),
-                    ),
             ),
           ],
         ),
