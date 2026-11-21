@@ -1,0 +1,109 @@
+"""Nola 后端 Mock 服务器（仅供本地可视化验证 Flutter 界面使用）。
+
+用法：python3 tool/mock_server.py [port]
+所有 /admin 接口返回 code=200，列表接口返回空分页数据，
+使 App 可以在无真实凭据的情况下渲染界面。
+"""
+import json
+import sys
+import time
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+
+
+def ok(data=None):
+    return {"code": 200, "errMsg": None, "data": data}
+
+
+def empty_pager():
+    return {"page": 1, "size": 10, "data": [], "totalData": 0, "totalPages": 1}
+
+
+NOW = int(time.time() * 1000)
+
+
+class Handler(BaseHTTPRequestHandler):
+    def _send(self, payload, content_type="application/json", status=200):
+        body = json.dumps(payload, ensure_ascii=False).encode("utf-8")
+        self.send_response(status)
+        self.send_header("Content-Type", f"{content_type}; charset=utf-8")
+        self.send_header("Access-Control-Allow-Origin", "*")
+        self.send_header(
+            "Access-Control-Allow-Headers", "Authorization, Content-Type"
+        )
+        self.send_header(
+            "Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS"
+        )
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+
+    def do_OPTIONS(self):
+        self._send(ok(True))
+
+    def do_GET(self):
+        path = self.path.split("?")[0]
+        if path == "/admin/overview/online":
+            # SSE：发送一条在线人数后保持连接
+            self.send_response(200)
+            self.send_header("Content-Type", "text/event-stream")
+            self.send_header("Access-Control-Allow-Origin", "*")
+            self.end_headers()
+            event = json.dumps({"count": 3, "timestamp": NOW})
+            self.wfile.write(f"data: {event}\n\n".encode("utf-8"))
+            return
+        if path == "/api/config/blog" or path == "/admin/config/blog":
+            self._send(ok({
+                "title": "Nola 视觉验证站", "subtitle": "Mock Backend",
+                "blogger": "视觉验证", "logo": None, "favicon": None,
+                "createDate": 1700000000000,
+            }))
+            return
+        if path == "/admin/overview":
+            self._send(ok({
+                "postVisitCount": 12345,
+                "count": {"post": 12, "tag": 5, "category": 3,
+                          "comment": 28, "diary": 6, "file": 42,
+                          "link": 8, "menu": 2},
+                "tags": [{"tagId": 1, "displayName": "Flutter", "slug": "flutter",
+                          "color": "#306FFF", "postCount": 6},
+                         {"tagId": 2, "displayName": "Kotlin", "slug": "kotlin",
+                          "color": "#8B5CF6", "postCount": 4}],
+                "categories": [{"categoryId": 1, "displayName": "技术",
+                                "slug": "tech", "cover": None,
+                                "unifiedCover": False, "postCount": 8}],
+                "mostViewedPost": {"postId": 1, "title": "欢迎使用 Nola",
+                                   "excerpt": "", "slug": "first", "cover": None,
+                                   "allowComment": True, "pinned": False,
+                                   "encrypted": False, "visit": 999,
+                                   "category": None, "tags": [],
+                                   "createTime": NOW, "lastModifyTime": None},
+                "lastOperation": "修改文章 [欢迎使用 Nola]",
+                "lastLoginDate": NOW,
+                "createDate": 1700000000000,
+            }))
+            return
+        if path == "/admin/config/icp":
+            self._send(ok({"icp": "京ICP备00000000号", "police": None}))
+            return
+        if path.startswith("/admin/"):
+            self._send(ok(empty_pager()))
+            return
+        self._send(ok(None))
+
+    def do_POST(self):
+        self._send(ok(True))
+
+    def do_PUT(self):
+        self._send(ok(True))
+
+    def do_DELETE(self):
+        self._send(ok(True))
+
+    def log_message(self, *args):
+        pass
+
+
+if __name__ == "__main__":
+    port = int(sys.argv[1]) if len(sys.argv) > 1 else 8932
+    print(f"Mock server listening on http://127.0.0.1:{port}")
+    ThreadingHTTPServer(("127.0.0.1", port), Handler).serve_forever()
