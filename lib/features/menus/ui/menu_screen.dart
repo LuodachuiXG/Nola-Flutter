@@ -132,26 +132,26 @@ class _MenuScreenState extends ConsumerState<MenuScreen> {
       onSave: () async {
         final name = nameController.text.trim();
         if (name.isEmpty) {
-          showGlobalSnack( '菜单名称不能为空', error: true);
+          showSnack(context, '菜单名称不能为空', error: true);
           return false;
         }
         final api = ref.read(menuApiProvider);
         try {
           if (menu == null) {
             await api.addMenu(displayName: name, isMain: isMain);
-            showGlobalSnack( '菜单已创建');
+            showGlobalSnack('菜单已创建');
           } else {
             await api.updateMenu(
               menuId: menu.menuId,
               displayName: name,
               isMain: isMain,
             );
-            showGlobalSnack( '菜单已保存');
+            showGlobalSnack('菜单已保存');
           }
           ref.invalidate(menuListProvider);
           return true;
         } on ApiException catch (error) {
-          showGlobalSnack( error.message, error: true);
+          showGlobalSnack(error.message, error: true);
           return false;
         }
       },
@@ -316,6 +316,22 @@ class _NodeMenu extends ConsumerWidget {
     return PopupMenuButton<String>(
       onSelected: (value) async {
         switch (value) {
+          case 'up':
+            await moveMenuItem(
+              context,
+              ref,
+              menuId: menuId,
+              node: node,
+              offset: -1,
+            );
+          case 'down':
+            await moveMenuItem(
+              context,
+              ref,
+              menuId: menuId,
+              node: node,
+              offset: 1,
+            );
           case 'add_child':
             await showMenuItemForm(context, ref, menuId, parent: node);
           case 'edit':
@@ -324,36 +340,73 @@ class _NodeMenu extends ConsumerWidget {
             await _delete(context, ref);
         }
       },
-      itemBuilder: (context) => const [
-        PopupMenuItem(
-          value: 'add_child',
-          child: ListTile(
-            leading: Icon(Icons.subdirectory_arrow_right),
-            title: Text('添加子项'),
-            contentPadding: EdgeInsets.zero,
-            dense: true,
+      itemBuilder: (context) {
+        // 同级位置：决定上移 / 下移是否可用
+        final siblings = _nodeSiblings(context, ref);
+        final position =
+            siblings.indexWhere((item) => item.menuItemId == node.menuItemId);
+        return [
+          PopupMenuItem(
+            value: 'up',
+            enabled: position > 0,
+            child: ListTile(
+              leading: const Icon(Icons.arrow_upward_rounded),
+              title: const Text('上移'),
+              contentPadding: EdgeInsets.zero,
+              dense: true,
+            ),
           ),
-        ),
-        PopupMenuItem(
-          value: 'edit',
-          child: ListTile(
-            leading: Icon(Icons.edit_outlined),
-            title: Text('编辑'),
-            contentPadding: EdgeInsets.zero,
-            dense: true,
+          PopupMenuItem(
+            value: 'down',
+            enabled: position < siblings.length - 1,
+            child: ListTile(
+              leading: const Icon(Icons.arrow_downward_rounded),
+              title: const Text('下移'),
+              contentPadding: EdgeInsets.zero,
+              dense: true,
+            ),
           ),
-        ),
-        PopupMenuItem(
-          value: 'delete',
-          child: ListTile(
-            leading: Icon(Icons.delete_outline),
-            title: Text('删除'),
-            contentPadding: EdgeInsets.zero,
-            dense: true,
+          const PopupMenuDivider(),
+          const PopupMenuItem(
+            value: 'add_child',
+            child: ListTile(
+              leading: Icon(Icons.subdirectory_arrow_right),
+              title: Text('添加子项'),
+              contentPadding: EdgeInsets.zero,
+              dense: true,
+            ),
           ),
-        ),
-      ],
+          const PopupMenuItem(
+            value: 'edit',
+            child: ListTile(
+              leading: Icon(Icons.edit_outlined),
+              title: Text('编辑'),
+              contentPadding: EdgeInsets.zero,
+              dense: true,
+            ),
+          ),
+          const PopupMenuItem(
+            value: 'delete',
+            child: ListTile(
+              leading: Icon(Icons.delete_outline),
+              title: Text('删除'),
+              contentPadding: EdgeInsets.zero,
+              dense: true,
+            ),
+          ),
+        ];
+      },
     );
+  }
+
+  /// 当前节点的同级菜单项（按 index 升序）。
+  List<MenuItem> _nodeSiblings(BuildContext context, WidgetRef ref) {
+    final items = ref.watch(menuItemsProvider(menuId)).value ??
+        const <MenuItem>[];
+    return _flatten(items)
+        .where((item) => item.parentMenuItemId == node.parentMenuItemId)
+        .toList()
+      ..sort((a, b) => a.index.compareTo(b.index));
   }
 
   Future<void> _delete(BuildContext context, WidgetRef ref) async {
@@ -368,14 +421,14 @@ class _NodeMenu extends ConsumerWidget {
     try {
       await ref.read(menuApiProvider).deleteMenuItems([node.menuItemId]);
       ref.invalidate(menuItemsProvider(menuId));
-      if (context.mounted) showGlobalSnack( '菜单项已删除');
+      if (context.mounted) showGlobalSnack('菜单项已删除');
     } on ApiException catch (error) {
-      if (context.mounted) showGlobalSnack( error.message, error: true);
+      if (context.mounted) showGlobalSnack(error.message, error: true);
     }
   }
 }
 
-/// 展开树节点为一维列表（父级选项用）。
+/// 展开树节点为一维列表（父级选项 / 同级查找用）。
 List<MenuItem> _flatten(List<MenuItem> nodes) {
   return [
     for (final node in nodes) ...[
@@ -383,6 +436,61 @@ List<MenuItem> _flatten(List<MenuItem> nodes) {
       ..._flatten(node.children),
     ],
   ];
+}
+
+/// 上移 / 下移菜单项（offset：-1 上移，1 下移）。
+///
+/// 由 App 自动计算排序：将同级菜单项按新顺序把 index 重编为
+/// 0..n-1 并保存，失败时恢复为服务器状态。
+Future<void> moveMenuItem(
+  BuildContext context,
+  WidgetRef ref, {
+  required int menuId,
+  required MenuItem node,
+  required int offset,
+}) async {
+  final items = ref.read(menuItemsProvider(menuId)).value ?? const <MenuItem>[];
+  final siblings = _flatten(items)
+      .where((item) => item.parentMenuItemId == node.parentMenuItemId)
+      .toList()
+    ..sort((a, b) => a.index.compareTo(b.index));
+  final position =
+      siblings.indexWhere((item) => item.menuItemId == node.menuItemId);
+  final targetPosition = position + offset;
+  if (position < 0 ||
+      targetPosition < 0 ||
+      targetPosition >= siblings.length) {
+    return;
+  }
+
+  // 按新顺序重排同级菜单项
+  final reordered = [...siblings];
+  final moved = reordered.removeAt(position);
+  reordered.insert(targetPosition, moved);
+
+  final api = ref.read(menuApiProvider);
+  try {
+    await Future.wait([
+      for (var i = 0; i < reordered.length; i++)
+        api.updateMenuItem(MenuItem.requestJson(
+          menuItemId: reordered[i].menuItemId,
+          displayName: reordered[i].displayName,
+          href: reordered[i].href ?? '',
+          target: reordered[i].target,
+          parentMenuId: menuId,
+          parentMenuItemId: reordered[i].parentMenuItemId,
+          index: i,
+        )),
+    ]);
+    ref.invalidate(menuItemsProvider(menuId));
+    if (context.mounted) {
+      showGlobalSnack('排序已调整', icon: Icons.check_circle_rounded);
+    }
+  } on ApiException catch (error) {
+    // 失败时刷新为服务器状态
+    ref.invalidate(menuItemsProvider(menuId));
+    showGlobalSnack('排序调整失败：${error.message}', error: true);
+  }
 }
 
 /// 新建 / 修改菜单项表单。
@@ -397,9 +505,6 @@ Future<void> showMenuItemForm(
   final hrefController = TextEditingController(text: item?.href ?? '');
   var target = item?.target ?? MenuItemTarget.blank;
   var parentMenuItemId = item?.parentMenuItemId ?? parent?.menuItemId;
-  final indexController = TextEditingController(
-    text: '${item?.index ?? 0}',
-  );
 
   // 获取全部菜单项供选择父级
   final allItems = await ref.read(menuApiProvider).menuItems(menuId);
@@ -447,11 +552,12 @@ Future<void> showMenuItemForm(
             ],
             onChanged: (value) => setState(() => parentMenuItemId = value),
           ),
-          const SizedBox(height: 12),
-          TextFormField(
-            controller: indexController,
-            keyboardType: TextInputType.number,
-            decoration: const InputDecoration(labelText: '排序索引'),
+          const SizedBox(height: 8),
+          Text(
+            '显示顺序由「上移 / 下移」自动调整，无需手动填写。',
+            style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                  color: Theme.of(context).colorScheme.outline,
+                ),
           ),
         ],
       ),
@@ -459,10 +565,13 @@ Future<void> showMenuItemForm(
     onSave: () async {
       final name = nameController.text.trim();
       if (name.isEmpty) {
-        showGlobalSnack( '名称不能为空', error: true);
+        showSnack(context, '名称不能为空', error: true);
         return false;
       }
-      final index = int.tryParse(indexController.text.trim()) ?? 0;
+      // 排序由 App 自动计算：编辑保持原位，新建追加到同级末尾
+      final index = item != null
+          ? item.index
+          : _nextSiblingIndex(ref, menuId, parentMenuItemId);
       final body = MenuItem.requestJson(
         menuItemId: item?.menuItemId,
         displayName: name,
@@ -476,17 +585,27 @@ Future<void> showMenuItemForm(
       try {
         if (item == null) {
           await api.addMenuItem(body);
-          showGlobalSnack( '菜单项已添加');
+          showGlobalSnack('菜单项已添加');
         } else {
           await api.updateMenuItem(body);
-          showGlobalSnack( '菜单项已保存');
+          showGlobalSnack('菜单项已保存');
         }
         ref.invalidate(menuItemsProvider(menuId));
         return true;
       } on ApiException catch (error) {
-        showGlobalSnack( error.message, error: true);
+        showGlobalSnack(error.message, error: true);
         return false;
       }
     },
   );
+}
+
+/// 计算新增菜单项的 index：追加到同级末尾。
+int _nextSiblingIndex(WidgetRef ref, int menuId, int? parentMenuItemId) {
+  final items = ref.read(menuItemsProvider(menuId)).value ?? const <MenuItem>[];
+  final siblings = _flatten(items)
+      .where((item) => item.parentMenuItemId == parentMenuItemId)
+      .toList();
+  if (siblings.isEmpty) return 0;
+  return siblings.map((item) => item.index).reduce((a, b) => a > b ? a : b) + 1;
 }

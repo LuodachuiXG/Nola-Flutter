@@ -232,14 +232,26 @@ class _FormSheetState extends State<_FormSheet> {
 final scaffoldMessengerKey = GlobalKey<ScaffoldMessengerState>();
 
 /// 在任意位置显示提示 SnackBar（无需 BuildContext）。
-void showGlobalSnack(String message, {bool error = false}) {
+void showGlobalSnack(
+  String message, {
+  bool error = false,
+  IconData? icon,
+}) {
   final messenger = scaffoldMessengerKey.currentState;
   if (messenger == null) return;
   messenger
     ..hideCurrentSnackBar()
     ..showSnackBar(
       SnackBar(
-        content: Text(message),
+        content: Row(
+          children: [
+            if (icon != null) ...[
+              Icon(icon, size: 18),
+              const SizedBox(width: 8),
+            ],
+            Expanded(child: Text(message)),
+          ],
+        ),
         behavior: SnackBarBehavior.floating,
       ),
     );

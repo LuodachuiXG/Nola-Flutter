@@ -20,6 +20,27 @@ def empty_pager():
 
 NOW = int(time.time() * 1000)
 
+# 内存菜单项数据（供拖动排序可视化验证）
+MENU_ITEMS = [
+    {"menuItemId": 1, "displayName": "首页", "href": "/", "target": "SELF",
+     "parentMenuId": 1, "parentMenuItemId": None, "index": 0,
+     "createTime": NOW, "lastModifyTime": NOW, "children": []},
+    {"menuItemId": 2, "displayName": "归档", "href": "/archives", "target": "SELF",
+     "parentMenuId": 1, "parentMenuItemId": None, "index": 1,
+     "createTime": NOW, "lastModifyTime": NOW, "children": []},
+    {"menuItemId": 3, "displayName": "友情链接", "href": "/links", "target": "SELF",
+     "parentMenuId": 1, "parentMenuItemId": None, "index": 2,
+     "createTime": NOW, "lastModifyTime": NOW,
+     "children": [
+         {"menuItemId": 4, "displayName": "友链申请", "href": "/links/apply",
+          "target": "SELF", "parentMenuId": 1, "parentMenuItemId": 3,
+          "index": 0, "createTime": NOW, "lastModifyTime": NOW},
+     ]},
+    {"menuItemId": 5, "displayName": "关于我", "href": "/about", "target": "SELF",
+     "parentMenuId": 1, "parentMenuItemId": None, "index": 3,
+     "createTime": NOW, "lastModifyTime": NOW, "children": []},
+]
+
 
 class Handler(BaseHTTPRequestHandler):
     def _send(self, payload, content_type="application/json", status=200):
@@ -85,6 +106,27 @@ class Handler(BaseHTTPRequestHandler):
         if path == "/admin/config/icp":
             self._send(ok({"icp": "京ICP备00000000号", "police": None}))
             return
+        if path == "/admin/menu":
+            self._send(ok(empty_pager() | {"data": [
+                {"menuId": 1, "isMain": True, "displayName": "主菜单",
+                 "createTime": NOW, "lastModifyTime": NOW},
+            ], "totalData": 1, "totalPages": 1}))
+            return
+        if path.startswith("/admin/menu/item/"):
+            # 按 index 排序返回树形菜单项
+            top = sorted((i for i in MENU_ITEMS
+                          if i["parentMenuItemId"] is None),
+                         key=lambda i: i["index"])
+            result = []
+            for item in top:
+                item = dict(item)
+                item["children"] = sorted(
+                    (i for i in MENU_ITEMS
+                     if i["parentMenuItemId"] == item["menuItemId"]),
+                    key=lambda i: i["index"])
+                result.append(item)
+            self._send(ok(result))
+            return
         if path.startswith("/admin/"):
             self._send(ok(empty_pager()))
             return
@@ -94,9 +136,28 @@ class Handler(BaseHTTPRequestHandler):
         self._send(ok(True))
 
     def do_PUT(self):
+        path = self.path.split("?")[0]
+        if path == "/admin/menu/item":
+            length = int(self.headers.get("Content-Length") or 0)
+            payload = json.loads(self.rfile.read(length) or "{}")
+            for item in MENU_ITEMS:
+                if item["menuItemId"] == payload.get("menuItemId"):
+                    item["index"] = payload.get("index", item["index"])
+                    item["lastModifyTime"] = int(time.time() * 1000)
+                    break
+            self._send(ok(True))
+            return
         self._send(ok(True))
 
     def do_DELETE(self):
+        path = self.path.split("?")[0]
+        if path == "/admin/menu/item":
+            length = int(self.headers.get("Content-Length") or 0)
+            payload = json.loads(self.rfile.read(length) or "[]")
+            ids = set(payload) if isinstance(payload, list) else set()
+            MENU_ITEMS[:] = [i for i in MENU_ITEMS if i["menuItemId"] not in ids]
+            self._send(ok(True))
+            return
         self._send(ok(True))
 
     def log_message(self, *args):
