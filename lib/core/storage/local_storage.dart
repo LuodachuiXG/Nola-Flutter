@@ -54,6 +54,25 @@ class LocalStorage {
   Future<void> setSeedColorHex(String? hex) => hex == null
       ? _prefs.remove(StorageKeys.seedColor)
       : _prefs.setString(StorageKeys.seedColor, hex);
+
+  /// 已保存的服务器地址列表（历史连接记录）。
+  List<String> get savedServers {
+    final json = _prefs.getString(StorageKeys.savedServers);
+    if (json == null) return const [];
+    try {
+      final decoded = jsonDecode(json);
+      if (decoded is List) {
+        return decoded.whereType<String>().toList();
+      }
+    } catch (_) {
+      // 存储数据损坏时按无记录处理
+    }
+    return const [];
+  }
+
+  /// 保存服务器地址列表。
+  Future<void> setSavedServers(List<String> urls) =>
+      _prefs.setString(StorageKeys.savedServers, jsonEncode(urls));
 }
 
 /// [LocalStorage] 的 Riverpod 提供者。

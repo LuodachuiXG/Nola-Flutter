@@ -31,4 +31,7 @@ final class StorageKeys {
 
   /// 主题色（十六进制 RGB，不含 #）。
   static const String seedColor = 'nola.app.seedColor';
+
+  /// 已保存的服务器地址列表（JSON 数组）。
+  static const String savedServers = 'nola.server.saved';
 }

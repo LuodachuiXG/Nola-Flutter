@@ -1,6 +1,6 @@
 <div align="center"><img src="./assets/nola_logo.png" width="128"/></div>
 
-### Nola Flutter，Nola 博客的移动端管理后台（Flutter + Riverpod）。
+### Nola 博客的移动端管理后台（Flutter）。
 
 当前仓库是 Nola 博客系统的 Flutter 管理端，通过 [Nola](https://github.com/LuodachuiXG/Nola) 提供的 `/admin` 管理接口，在手机上完成博客的日常管理。Web 控制台版本详见 [Nola-Console](https://github.com/LuodachuiXG/Nola-Console)。
 

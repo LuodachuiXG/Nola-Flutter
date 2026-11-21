@@ -4,6 +4,7 @@ import 'package:go_router/go_router.dart';
 
 import '../../../core/constants/app_constants.dart';
 import '../../../core/network/api_exception.dart';
+import '../../../core/network/server_probe.dart';
 import '../../../core/storage/local_storage.dart';
 import '../../../core/utils/formatters.dart' show isValidEmail;
 import '../../../shared/widgets/dialogs.dart';
@@ -53,10 +54,24 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
   bool _submitting = false;
   bool _obscurePassword = true;
 
+  // 服务器连接状态与管理
+  bool _connected = false;
+  String? _connectError;
+  bool _serverPanelOpen = false;
+  List<String> _savedServers = [];
+  bool _probing = false;
+  String? _probeError;
+
   @override
   void initState() {
     super.initState();
-    _serverUrlController.text = ref.read(localStorageProvider).serverUrl;
+    final storage = ref.read(localStorageProvider);
+    _savedServers = storage.savedServers;
+    // 首次使用时把默认服务器加入保存列表，保证列表不为空
+    if (_savedServers.isEmpty) {
+      _savedServers = [storage.serverUrl];
+      storage.setSavedServers(_savedServers);
+    }
     _refreshBlogInfo();
   }
 
@@ -80,6 +95,8 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
   }
 
   /// 拉取博客信息，未初始化时进入初始化流程。
+  ///
+  /// 同时驱动服务器连接状态图标的展示。
   Future<void> _refreshBlogInfo() async {
     setState(() => _loadingBlogInfo = true);
     try {
@@ -87,28 +104,120 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
       if (!mounted) return;
       setState(() {
         _blogInfo = info;
+        _connected = true;
+        _connectError = null;
         _mode = info == null ? _LoginMode.createBlog : _LoginMode.login;
       });
-    } catch (error) {
+    } on ApiException catch (error) {
       if (!mounted) return;
-      setState(() => _mode = _LoginMode.login);
-      showGlobalSnack( '获取博客信息失败：$error', error: true);
+      setState(() {
+        _blogInfo = null;
+        _connected = false;
+        _connectError = error.message;
+        _mode = _LoginMode.login;
+        // 连接失败时自动展开服务器管理面板，方便切换或修改地址
+        _serverPanelOpen = true;
+      });
     } finally {
       if (mounted) setState(() => _loadingBlogInfo = false);
     }
   }
 
-  /// 保存服务器地址。
-  Future<void> _saveServerUrl() async {
-    final url = _serverUrlController.text.trim();
+  /// 规范化服务器地址（去空白与结尾斜杠）。
+  String _normalizeServerUrl(String url) {
+    final trimmed = url.trim();
+    return trimmed.endsWith('/') && trimmed.length > 1
+        ? trimmed.substring(0, trimmed.length - 1)
+        : trimmed;
+  }
+
+  /// 连接测试并保存：探测成功才加入服务器列表并设为当前。
+  Future<void> _connectAndSave() async {
+    final url = _normalizeServerUrl(_serverUrlController.text);
     if (url.isEmpty) {
-      showGlobalSnack( '服务器地址不能为空', error: true);
+      setState(() => _probeError = '请输入服务器地址');
       return;
     }
-    await ref.read(localStorageProvider).setServerUrl(url);
+    if (_probing) return;
+    setState(() {
+      _probing = true;
+      _probeError = null;
+    });
+    final result = await ServerProbe.probe(url);
     if (!mounted) return;
-    showGlobalSnack( '服务器地址已保存');
-    _refreshBlogInfo();
+    if (!result.success) {
+      setState(() {
+        _probing = false;
+        _probeError = result.message;
+      });
+      return;
+    }
+    await _applyServer(url);
+    if (!mounted) return;
+    setState(() {
+      _probing = false;
+      _serverPanelOpen = false;
+      _serverUrlController.clear();
+    });
+    showSnack(context, result.message, icon: Icons.check_circle_rounded);
+  }
+
+  /// 切换到已保存的服务器（先探测，成功才切换）。
+  Future<void> _switchServer(String url) async {
+    if (_probing || url == ref.read(localStorageProvider).serverUrl) return;
+    setState(() {
+      _probing = true;
+      _probeError = null;
+    });
+    final result = await ServerProbe.probe(url);
+    if (!mounted) return;
+    if (!result.success) {
+      setState(() {
+        _probing = false;
+        _probeError = result.message;
+      });
+      return;
+    }
+    await _applyServer(url);
+    if (!mounted) return;
+    setState(() {
+      _probing = false;
+      _serverPanelOpen = false;
+    });
+    showSnack(context, '已切换到 $url', icon: Icons.check_circle_rounded);
+  }
+
+  /// 将服务器地址设为当前并保存到历史记录。
+  Future<void> _applyServer(String url) async {
+    final storage = ref.read(localStorageProvider);
+    await storage.setServerUrl(url);
+    // 去重后置顶到列表首位
+    final servers = [
+      url,
+      ...storage.savedServers.where((item) => item != url),
+    ];
+    await storage.setSavedServers(servers);
+    if (!mounted) return;
+    setState(() => _savedServers = servers);
+    await _refreshBlogInfo();
+  }
+
+  /// 删除已保存的服务器记录（当前使用的除外）。
+  Future<void> _deleteServer(String url) async {
+    if (url == ref.read(localStorageProvider).serverUrl) return;
+    final storage = ref.read(localStorageProvider);
+    final servers = storage.savedServers.where((item) => item != url).toList();
+    await storage.setSavedServers(servers);
+    if (!mounted) return;
+    setState(() => _savedServers = servers);
+  }
+
+  /// 服务器连接状态说明。
+  String get _connectionStatusText {
+    if (_loadingBlogInfo) return '正在连接…';
+    if (_connected) return '已连接，Nola 服务可用';
+    if (_connectError != null) return _connectError!;
+    return '未连接';
   }
 
   /// 提交登录。
@@ -228,7 +337,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                   else
                     _buildForm(),
                   const SizedBox(height: 16),
-                  _buildServerUrlExpansion(theme),
+                  _buildServerCard(theme),
                 ],
               ),
             ),
@@ -474,42 +583,191 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
     );
   }
 
-  /// 服务器地址设置。
-  Widget _buildServerUrlExpansion(ThemeData theme) {
+  /// 服务器设置卡片：展示当前连接状态，输入框在连接成功后隐藏。
+  Widget _buildServerCard(ThemeData theme) {
+    final activeServer = ref.watch(localStorageProvider).serverUrl;
     return Card(
       margin: EdgeInsets.zero,
-      child: Theme(
-        data: theme.copyWith(dividerColor: Colors.transparent),
-        child: ExpansionTile(
-          tilePadding: const EdgeInsets.symmetric(horizontal: 16),
-          // 顶部与底部留足间距，避免展开内容与标题贴在一起
-          childrenPadding: const EdgeInsets.fromLTRB(16, 16, 16, 16),
-          leading: const Icon(Icons.dns_outlined),
-          title: Text('服务器设置', style: theme.textTheme.bodyMedium),
-          subtitle: Text(
-            _serverUrlController.text,
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-            style: theme.textTheme.bodySmall
-                ?.copyWith(color: theme.colorScheme.outline),
-          ),
-          children: [
-            TextFormField(
-              controller: _serverUrlController,
-              keyboardType: TextInputType.url,
-              decoration: const InputDecoration(
-                labelText: '服务器地址',
-                hintText: kDefaultServerUrl,
-                border: OutlineInputBorder(),
+      clipBehavior: Clip.antiAlias,
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          ListTile(
+            leading: _buildStatusIcon(theme),
+            title: Text('服务器设置', style: theme.textTheme.bodyMedium),
+            subtitle: Padding(
+              padding: const EdgeInsets.only(top: 2),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    activeServer,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: theme.textTheme.bodySmall?.copyWith(
+                      color: theme.colorScheme.outline,
+                    ),
+                  ),
+                  Text(
+                    _connectionStatusText,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: theme.textTheme.bodySmall?.copyWith(
+                      color: _connected
+                          ? theme.colorScheme.primary
+                          : (_connectError != null
+                              ? theme.colorScheme.error
+                              : theme.colorScheme.outline),
+                    ),
+                  ),
+                ],
               ),
             ),
-            const SizedBox(height: 12),
-            OutlinedButton(
-              onPressed: _saveServerUrl,
-              child: const Text('保存并连接'),
+            // 切换按钮：展开 / 收起服务器管理面板
+            trailing: IconButton.filledTonal(
+              tooltip: _serverPanelOpen ? '收起面板' : '切换服务器',
+              icon: Icon(
+                _serverPanelOpen
+                    ? Icons.expand_less_rounded
+                    : Icons.swap_horiz_rounded,
+              ),
+              onPressed: () =>
+                  setState(() => _serverPanelOpen = !_serverPanelOpen),
+            ),
+          ),
+          if (_serverPanelOpen) _buildServerPanel(theme),
+        ],
+      ),
+    );
+  }
+
+  /// 连接状态图标。
+  Widget _buildStatusIcon(ThemeData theme) {
+    if (_loadingBlogInfo || _probing) {
+      return const SizedBox(
+        width: 26,
+        height: 26,
+        child: CircularProgressIndicator(strokeWidth: 2.5),
+      );
+    }
+    if (_connected) {
+      return Icon(
+        Icons.check_circle_rounded,
+        color: theme.colorScheme.primary,
+        size: 28,
+      );
+    }
+    return Icon(
+      Icons.cloud_off_rounded,
+      color: theme.colorScheme.outline,
+      size: 28,
+    );
+  }
+
+  /// 服务器管理面板：已保存列表 + 新增连接。
+  Widget _buildServerPanel(ThemeData theme) {
+    return Container(
+      width: double.infinity,
+      decoration: BoxDecoration(
+        color: theme.colorScheme.surfaceContainerLow,
+        border: Border(
+          top: BorderSide(color: theme.colorScheme.outlineVariant),
+        ),
+      ),
+      padding: const EdgeInsets.fromLTRB(16, 12, 16, 16),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          // 已保存的服务器列表
+          for (final url in _savedServers)
+            ListTile(
+              dense: true,
+              contentPadding: EdgeInsets.zero,
+              leading: Icon(
+                url == ref.watch(localStorageProvider).serverUrl
+                    ? Icons.radio_button_checked_rounded
+                    : Icons.radio_button_off_rounded,
+                size: 20,
+                color: url == ref.watch(localStorageProvider).serverUrl
+                    ? theme.colorScheme.primary
+                    : theme.colorScheme.outline,
+              ),
+              title: Text(
+                url,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: theme.textTheme.bodyMedium,
+              ),
+              trailing: url == ref.watch(localStorageProvider).serverUrl
+                  ? Text(
+                      '当前',
+                      style: theme.textTheme.labelSmall?.copyWith(
+                        color: theme.colorScheme.primary,
+                      ),
+                    )
+                  : IconButton(
+                      tooltip: '删除记录',
+                      icon: const Icon(Icons.close_rounded, size: 18),
+                      onPressed: () => _deleteServer(url),
+                    ),
+              onTap: () => _switchServer(url),
+            ),
+          const Divider(height: 20),
+          // 新增服务器
+          Text('添加服务器', style: theme.textTheme.bodySmall),
+          const SizedBox(height: 8),
+          Row(
+            children: [
+              Expanded(
+                child: TextFormField(
+                  controller: _serverUrlController,
+                  keyboardType: TextInputType.url,
+                  decoration: const InputDecoration(
+                    labelText: '服务器地址',
+                    hintText: kDefaultServerUrl,
+                  ),
+                  onFieldSubmitted: (_) => _connectAndSave(),
+                ),
+              ),
+              const SizedBox(width: 8),
+              FilledButton.icon(
+                onPressed: _probing ? null : _connectAndSave,
+                icon: const Icon(Icons.wifi_rounded, size: 18),
+                label: const Text('测试连接'),
+              ),
+            ],
+          ),
+          if (_probeError != null) ...[
+            const SizedBox(height: 8),
+            Row(
+              children: [
+                Icon(
+                  Icons.error_outline_rounded,
+                  size: 16,
+                  color: theme.colorScheme.error,
+                ),
+                const SizedBox(width: 6),
+                Expanded(
+                  child: Text(
+                    _probeError!,
+                    style: theme.textTheme.bodySmall?.copyWith(
+                      color: theme.colorScheme.error,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ] else ...[
+            const SizedBox(height: 8),
+            Text(
+              '将检测目标是否为可用的 Nola 服务，成功后保存到列表。',
+              style: theme.textTheme.bodySmall?.copyWith(
+                color: theme.colorScheme.outline,
+              ),
             ),
           ],
-        ),
+        ],
       ),
     );
   }

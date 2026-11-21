@@ -246,19 +246,40 @@ void showGlobalSnack(String message, {bool error = false}) {
 }
 
 /// 显示提示 SnackBar。
-void showSnack(BuildContext context, String message, {bool error = false}) {
+void showSnack(
+  BuildContext context,
+  String message, {
+  bool error = false,
+  IconData? icon,
+}) {
   final theme = Theme.of(context);
   ScaffoldMessenger.of(context)
     ..hideCurrentSnackBar()
     ..showSnackBar(
       SnackBar(
-        content: Text(
-          message,
-          style: TextStyle(
-            color: error
-                ? theme.colorScheme.onError
-                : theme.colorScheme.onInverseSurface,
-          ),
+        content: Row(
+          children: [
+            if (icon != null) ...[
+              Icon(
+                icon,
+                size: 18,
+                color: error
+                    ? theme.colorScheme.onError
+                    : theme.colorScheme.onInverseSurface,
+              ),
+              const SizedBox(width: 8),
+            ],
+            Expanded(
+              child: Text(
+                message,
+                style: TextStyle(
+                  color: error
+                      ? theme.colorScheme.onError
+                      : theme.colorScheme.onInverseSurface,
+                ),
+              ),
+            ),
+          ],
         ),
         behavior: SnackBarBehavior.floating,
         backgroundColor:
