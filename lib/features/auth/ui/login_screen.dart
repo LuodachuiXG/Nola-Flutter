@@ -330,9 +330,13 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                   ),
                   const SizedBox(height: 32),
                   if (_loadingBlogInfo)
-                    const Padding(
-                      padding: EdgeInsets.all(48),
-                      child: CircularProgressIndicator(),
+                    // 外层 Column 为 stretch 布局，需用 Center 提供
+                    // 松约束，避免进度条被水平拉伸为椭圆
+                    const Center(
+                      child: Padding(
+                        padding: EdgeInsets.all(48),
+                        child: CircularProgressIndicator(),
+                      ),
                     )
                   else
                     _buildForm(),
