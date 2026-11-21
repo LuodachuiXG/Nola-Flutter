@@ -173,6 +173,7 @@ class _ConsoleShellState extends State<ConsoleShell> {
     final extended = MediaQuery.of(context).size.width >= 1300;
     return NavigationRail(
       selectedIndex: selectedIndex,
+      scrollable: true,
       extended: extended,
       minExtendedWidth: 180,
       labelType: extended ? NavigationRailLabelType.none : NavigationRailLabelType.all,
