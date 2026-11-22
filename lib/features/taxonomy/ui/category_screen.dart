@@ -5,6 +5,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../core/models/taxonomy.dart';
 import '../../../core/network/api_exception.dart';
 import '../../../shared/widgets/async_value_widget.dart';
+import '../../../shared/widgets/attachment_picker.dart';
 import '../../../shared/widgets/dialogs.dart';
 import '../../shell/ui/console_shell.dart';
 import '../../files/data/file_api.dart';
@@ -208,7 +209,10 @@ Future<void> showCategoryForm(
                           type: FileType.image,
                           withData: true,
                         );
-                        final file = result?.files.single;
+                        // 空列表时 files.single 会抛 StateError，安全取第一个
+                        final file = (result == null || result.files.isEmpty)
+                            ? null
+                            : result.files.first;
                         if (file == null || file.bytes == null) return;
                         setState(() => uploading = true);
                         try {
@@ -239,6 +243,22 @@ Future<void> showCategoryForm(
                         child: CircularProgressIndicator(strokeWidth: 2),
                       )
                     : const Icon(Icons.upload_rounded),
+                tooltip: '上传封面',
+              ),
+              const SizedBox(width: 8),
+              IconButton.outlined(
+                onPressed: uploading
+                    ? null
+                    : () async {
+                        final item = await showAttachmentPicker(
+                          context,
+                          imageOnly: true,
+                        );
+                        if (item == null) return;
+                        coverController.text = item.url;
+                      },
+                icon: const Icon(Icons.photo_library_outlined),
+                tooltip: '从附件库选择',
               ),
             ],
           ),

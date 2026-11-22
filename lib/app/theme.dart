@@ -18,12 +18,17 @@ const List<Color> kPresetSeedColors = [
   Color(0xFF64748B),
 ];
 
+/// 全局默认字体（小米 MiSans）。
+const String kAppFontFamily = 'MiSans';
+
 /// 构建应用主题。
 ///
 /// [seedColor] 为用户选择的主题色，亮暗两套配色共用同一种子色。
 ThemeData buildAppTheme(Brightness brightness, Color seedColor) {
   return ThemeData(
     useMaterial3: true,
+    fontFamily: kAppFontFamily,
+    fontFamilyFallback: const [kAppFontFamily],
     colorScheme: ColorScheme.fromSeed(
       seedColor: seedColor,
       brightness: brightness,

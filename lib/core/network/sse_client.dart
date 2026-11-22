@@ -17,6 +17,12 @@ class SseClient {
 
   final Dio _dio;
 
+  /// SSE 事件分隔符（规范允许 LF / CRLF / CR 三种行结尾）。
+  static final RegExp _eventBoundary = RegExp(r'\n\n|\r\n\r\n|\r\r');
+
+  /// SSE 行分隔符。
+  static final RegExp _lineBreak = RegExp(r'\r\n|\r|\n');
+
   /// 订阅指定路径，返回每个事件的 data 文本流。
   ///
   /// 主动取消订阅即可断开连接；连接异常时流会以错误结束。
@@ -44,12 +50,13 @@ class SseClient {
         subscription = body.stream.listen(
           (chunk) {
             buffer += utf8.decode(chunk, allowMalformed: true);
-            // SSE 事件以空行分隔
+            // SSE 事件以空行分隔（按完整分隔符切分，
+            // 避免把跨 chunk 的半个 CRLF 误判为边界）
             while (true) {
-              final index = buffer.indexOf('\n\n');
-              if (index < 0) break;
-              final event = buffer.substring(0, index);
-              buffer = buffer.substring(index + 2);
+              final match = _eventBoundary.firstMatch(buffer);
+              if (match == null) break;
+              final event = buffer.substring(0, match.start);
+              buffer = buffer.substring(match.end);
               final data = _parseEventData(event);
               if (data != null && data != 'ping') {
                 controller.add(data);
@@ -76,7 +83,7 @@ class SseClient {
 
   /// 提取事件文本中的 data 字段（多行 data 合并）。
   String? _parseEventData(String event) {
-    final lines = event.split('\n');
+    final lines = event.split(_lineBreak);
     final dataLines = <String>[];
     for (final line in lines) {
       if (line.startsWith('data:')) {

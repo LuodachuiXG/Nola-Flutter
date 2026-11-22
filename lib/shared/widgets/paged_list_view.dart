@@ -53,6 +53,9 @@ class PagedListView<T> extends StatelessWidget {
   Widget build(BuildContext context) {
     return AsyncValueWidget<PagedState<T>>(
       value: value,
+      // 首屏加载失败时提供重试入口（复用下拉刷新逻辑）
+      error: (context, error) =>
+          ErrorPlaceholder(message: '$error', onRetry: onRefresh),
       builder: (context, state) {
         final itemCount = state.items.length;
         final hasHeader = header != null;

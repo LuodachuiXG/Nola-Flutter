@@ -6,6 +6,7 @@ import '../features/settings/providers/app_settings_providers.dart';
 import '../shared/widgets/dialogs.dart';
 import 'router.dart';
 import 'theme.dart';
+import 'window/title_bar.dart';
 
 /// Nola 管理端应用根组件。
 class NolaApp extends ConsumerStatefulWidget {
@@ -36,6 +37,13 @@ class _NolaAppState extends ConsumerState<NolaApp> {
       themeMode: settings.materialThemeMode,
       routerConfig: ref.watch(routerProvider),
       scaffoldMessengerKey: scaffoldMessengerKey,
+      // 桌面端自绘标题栏挂在最外层：登录页、编辑页等所有路由页面均可见。
+      builder: (context, child) => Column(
+        children: [
+          const WindowTitleBar(),
+          Expanded(child: child ?? const SizedBox.shrink()),
+        ],
+      ),
     );
   }
 }

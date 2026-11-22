@@ -20,7 +20,7 @@ class DashboardScreen extends ConsumerWidget {
     return Scaffold(
       appBar: ConsoleAppBar(
         title: '概览',
-        actions: const [_OnlineCountChip()],
+        actions: const [_OnlineCountChip(), _ServerLatencyChip()],
       ),
       body: RefreshIndicator(
         onRefresh: () async => ref.refresh(overviewProvider.future),
@@ -70,22 +70,27 @@ class DashboardScreen extends ConsumerWidget {
               ),
             ),
             const SizedBox(width: 16),
-            Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  '文章总浏览量',
-                  style: theme.textTheme.bodyMedium
-                      ?.copyWith(color: theme.colorScheme.outline),
-                ),
-                const SizedBox(height: 4),
-                Text(
-                  '${data.postVisitCount}',
-                  style: theme.textTheme.headlineMedium?.copyWith(
-                    fontWeight: FontWeight.w700,
+            // Expanded 防止大数字在窄屏下水平溢出
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    '文章总浏览量',
+                    style: theme.textTheme.bodyMedium
+                        ?.copyWith(color: theme.colorScheme.outline),
                   ),
-                ),
-              ],
+                  const SizedBox(height: 4),
+                  Text(
+                    '${data.postVisitCount}',
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: theme.textTheme.headlineMedium?.copyWith(
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                ],
+              ),
             ),
           ],
         ),
@@ -249,6 +254,52 @@ class _OnlineCountChip extends ConsumerWidget {
         ),
         loading: () => const SizedBox.shrink(),
         error: (_, _) => const SizedBox.shrink(),
+      ),
+    );
+  }
+}
+
+/// 服务器延迟芯片：每 10 秒探测一次公开接口的往返耗时。
+class _ServerLatencyChip extends ConsumerWidget {
+  const _ServerLatencyChip();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final theme = Theme.of(context);
+    final latency = ref.watch(serverLatencyProvider);
+    return Padding(
+      padding: const EdgeInsets.only(right: 12),
+      child: latency.when(
+        loading: () => const SizedBox(
+          width: 18,
+          height: 18,
+          child: Padding(
+            padding: EdgeInsets.all(4),
+            child: CircularProgressIndicator(strokeWidth: 2),
+          ),
+        ),
+        error: (_, _) => const SizedBox.shrink(),
+        data: (state) {
+          final ms = state.latencyMs ?? 0;
+          final color = !state.available
+              ? theme.colorScheme.error
+              : ms < 200
+                  ? const Color(0xFF3FB27F)
+                  : ms < 800
+                      ? const Color(0xFFF59E0B)
+                      : theme.colorScheme.error;
+          final label = state.available ? '$ms ms' : '服务器离线';
+          return Tooltip(
+            message: state.available
+                ? '服务器延迟（每 10 秒测量一次公开接口往返耗时）'
+                : '无法连接服务器',
+            child: Chip(
+              avatar: Icon(Icons.circle, size: 10, color: color),
+              label: Text(label),
+              visualDensity: VisualDensity.compact,
+            ),
+          );
+        },
       ),
     );
   }

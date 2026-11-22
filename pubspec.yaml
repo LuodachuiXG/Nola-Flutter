@@ -2,7 +2,7 @@ name: nola
 description: "Nola 博客管理端 Flutter 客户端。"
 publish_to: 'none'
 
-version: 1.0.0+1
+version: 0.0.1+1
 
 environment:
   sdk: ^3.13.5
@@ -29,6 +29,7 @@ dependencies:
   share_plus: ^12.0.0
   # Markdown 预览（WebView 渲染）
   webview_flutter: ^4.13.0
+  window_manager: 0.5.1
 
 dev_dependencies:
   flutter_test:
@@ -68,3 +69,16 @@ flutter:
     - assets/nola_icon.png
     - assets/nola_icon_foreground.png
     - assets/markdown/
+
+  # 全局默认字体（小米 MiSans，Free for commercial use）
+  # 仅打包实际用到的字重以控制包体积：w400/w500/w700，
+  # w600 由引擎就近选择 Bold 覆盖，其余字重不打包。
+  fonts:
+    - family: MiSans
+      fonts:
+        - asset: assets/fonts/MiSans-Regular.ttf
+          weight: 400
+        - asset: assets/fonts/MiSans-Medium.ttf
+          weight: 500
+        - asset: assets/fonts/MiSans-Bold.ttf
+          weight: 700

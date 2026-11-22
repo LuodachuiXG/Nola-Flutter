@@ -12,31 +12,13 @@ import '../data/system_api.dart';
 import '../providers/system_providers.dart';
 
 /// 系统页：操作记录与访问日志。
-class SystemScreen extends ConsumerStatefulWidget {
+class SystemScreen extends StatelessWidget {
   const SystemScreen({super.key});
 
   @override
-  ConsumerState<SystemScreen> createState() => _SystemScreenState();
-}
-
-class _SystemScreenState extends ConsumerState<SystemScreen>
-    with SingleTickerProviderStateMixin {
-  late final TabController _tabController;
-
-  @override
-  void initState() {
-    super.initState();
-    _tabController = TabController(length: 2, vsync: this);
-  }
-
-  @override
-  void dispose() {
-    _tabController.dispose();
-    super.dispose();
-  }
-
-  @override
   Widget build(BuildContext context) {
+    // TabBar 与 TabBarView 均由 DefaultTabController 统一驱动，
+    // 避免两处使用不同 controller 导致点击标签时正文不切换
     return DefaultTabController(
       length: 2,
       child: Scaffold(
@@ -52,9 +34,8 @@ class _SystemScreenState extends ConsumerState<SystemScreen>
             ),
           ),
         ),
-        body: TabBarView(
-          controller: _tabController,
-          children: const [
+        body: const TabBarView(
+          children: [
             _OperationTab(),
             _AccessLogTab(),
           ],

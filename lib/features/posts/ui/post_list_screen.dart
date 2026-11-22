@@ -5,6 +5,7 @@ import 'package:go_router/go_router.dart';
 import '../../../core/models/enums.dart';
 import '../../../core/models/post.dart';
 import '../../../core/network/api_exception.dart';
+import '../../../core/storage/local_storage.dart';
 import '../../../core/utils/formatters.dart';
 import '../../../shared/widgets/dialogs.dart';
 import '../../../shared/widgets/paged_list_view.dart';
@@ -136,7 +137,10 @@ class _PostListScreenState extends ConsumerState<PostListScreen> {
                 const SizedBox(width: 8),
               ],
               bottom: PreferredSize(
-                preferredSize: const Size.fromHeight(kToolbarHeight * 0.85),
+                // 搜索框展开时需追加其高度，否则 AppBar bottom 内容溢出
+                preferredSize: Size.fromHeight(
+                  kToolbarHeight * 0.85 + (_searching ? 56 : 0),
+                ),
                 child: Column(
                   children: [
                     if (_searching)
@@ -147,6 +151,10 @@ class _PostListScreenState extends ConsumerState<PostListScreen> {
                           decoration: const InputDecoration(
                             hintText: '搜索文章标题或内容',
                             prefixIcon: Icon(Icons.search),
+                            prefixIconConstraints: BoxConstraints(
+                              minWidth: 40,
+                              minHeight: 40,
+                            ),
                           ),
                           autofocus: true,
                           onSubmitted: _submitSearch,
@@ -223,6 +231,12 @@ class _PostListItem extends ConsumerWidget {
     final api = ref.read(postApiProvider);
     final isDeleted = post.status == PostStatus.deleted;
 
+    // 封面地址：文章自己的封面优先，其次使用分类的统一封面。
+    final cover = post.cover?.isNotEmpty == true
+        ? post.cover
+        : (post.category?.unifiedCover == true ? post.category?.cover : null);
+    final serverUrl = ref.read(localStorageProvider).serverUrl;
+
     return Card(
       margin: const EdgeInsets.only(bottom: 10),
       clipBehavior: Clip.antiAlias,
@@ -235,6 +249,10 @@ class _PostListItem extends ConsumerWidget {
           child: Row(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
+              if (cover != null && cover.isNotEmpty) ...[
+                _CoverThumb(url: resolveFileUrl(cover, serverUrl)),
+                const SizedBox(width: 12),
+              ],
               Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
@@ -567,7 +585,12 @@ Future<PostFilterResult?> showPostFilterSheet(
                 builder: (context, sheetRef, _) =>
                     sheetRef.watch(allCategoriesProvider).when(
                   data: (data) => DropdownButtonFormField<int?>(
-                    initialValue: categoryId,
+                    // 筛选引用的分类可能已被删除，失效时回退为「全部」，
+                    // 避免下拉框 value 不在 items 中触发断言
+                    initialValue:
+                        data.any((c) => c.categoryId == categoryId)
+                            ? categoryId
+                            : null,
                     decoration: const InputDecoration(labelText: '分类'),
                     items: [
                       const DropdownMenuItem(value: null, child: Text('全部')),
@@ -588,7 +611,10 @@ Future<PostFilterResult?> showPostFilterSheet(
                 builder: (context, sheetRef, _) =>
                     sheetRef.watch(allTagsProvider).when(
                   data: (data) => DropdownButtonFormField<int?>(
-                    initialValue: tagId,
+                    // 筛选引用的标签可能已被删除，失效时回退为「全部」
+                    initialValue: data.any((t) => t.tagId == tagId)
+                        ? tagId
+                        : null,
                     decoration: const InputDecoration(labelText: '标签'),
                     items: [
                       const DropdownMenuItem(value: null, child: Text('全部')),
@@ -643,4 +669,33 @@ Future<PostFilterResult?> showPostFilterSheet(
       ),
     ),
   );
+}
+
+/// 文章列表封面缩略图（56×56，圆角，加载失败显示占位图标）。
+class _CoverThumb extends StatelessWidget {
+  const _CoverThumb({required this.url});
+
+  final String url;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(10),
+      child: Container(
+        width: 56,
+        height: 56,
+        color: theme.colorScheme.surfaceContainerHighest,
+        child: Image.network(
+          url,
+          fit: BoxFit.cover,
+          errorBuilder: (_, _, _) => Icon(
+            Icons.broken_image_outlined,
+            size: 24,
+            color: theme.colorScheme.outline,
+          ),
+        ),
+      ),
+    );
+  }
 }

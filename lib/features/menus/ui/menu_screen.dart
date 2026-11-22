@@ -400,8 +400,10 @@ class _NodeMenu extends ConsumerWidget {
   }
 
   /// 当前节点的同级菜单项（按 index 升序）。
+  ///
+  /// 仅在弹窗 itemBuilder 回调中调用（非 build 阶段），使用 read 取当前值。
   List<MenuItem> _nodeSiblings(BuildContext context, WidgetRef ref) {
-    final items = ref.watch(menuItemsProvider(menuId)).value ??
+    final items = ref.read(menuItemsProvider(menuId)).value ??
         const <MenuItem>[];
     return _flatten(items)
         .where((item) => item.parentMenuItemId == node.parentMenuItemId)
@@ -507,7 +509,15 @@ Future<void> showMenuItemForm(
   var parentMenuItemId = item?.parentMenuItemId ?? parent?.menuItemId;
 
   // 获取全部菜单项供选择父级
-  final allItems = await ref.read(menuApiProvider).menuItems(menuId);
+  final List<MenuItem> allItems;
+  try {
+    allItems = await ref.read(menuApiProvider).menuItems(menuId);
+  } on ApiException catch (error) {
+    if (context.mounted) {
+      showGlobalSnack('菜单项加载失败：${error.message}', error: true);
+    }
+    return;
+  }
   if (!context.mounted) return;
 
   await showFormSheet(

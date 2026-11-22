@@ -8,6 +8,7 @@ import '../../../core/models/user.dart';
 import '../../../core/network/api_exception.dart';
 import '../../../core/storage/local_storage.dart';
 import '../../../core/utils/formatters.dart';
+import '../../../shared/widgets/attachment_picker.dart';
 import '../../../shared/widgets/dialogs.dart';
 import '../providers/app_settings_providers.dart';
 import '../../auth/providers/auth_providers.dart';
@@ -142,65 +143,96 @@ class SettingsScreen extends ConsumerWidget {
     final logoController = TextEditingController(text: blogInfo?.logo ?? '');
     final faviconController =
         TextEditingController(text: blogInfo?.favicon ?? '');
-    var uploadingField = '';
-
-    Future<void> uploadTo(TextEditingController controller, String field) async {
-      final result = await FilePicker.platform.pickFiles(
-        type: FileType.image,
-        withData: true,
-      );
-      final file = result?.files.single;
-      if (file == null || file.bytes == null) return;
-      // 上传后地址相对服务器，需要完整 URL 供前台使用
-      try {
-        final item = await ref.read(fileApiProvider).upload(
-              fileName: file.name,
-              fileBytes: file.bytes!,
-            );
-        if (item != null) {
-          final serverUrl = ref.read(localStorageProvider).serverUrl;
-          controller.text = resolveFileUrl(item.url, serverUrl);
-        }
-      } on ApiException catch (error) {
-        if (context.mounted) {
-          showGlobalSnack( error.message, error: true);
-        }
-      }
-      uploadingField = field;
-    }
 
     await showFormSheet(
       context,
       title: '博客信息',
       builder: (context) => StatefulBuilder(
-        builder: (context, setState) => Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            TextFormField(
-              controller: titleController,
-              decoration: const InputDecoration(labelText: '站点标题'),
-            ),
-            const SizedBox(height: 12),
-            TextFormField(
-              controller: subtitleController,
-              decoration: const InputDecoration(labelText: '站点副标题'),
-            ),
-            const SizedBox(height: 12),
-            _UploadField(
-              label: 'Logo 地址',
-              controller: logoController,
-              uploading: uploadingField == 'logo',
-              onUpload: () => uploadTo(logoController, 'logo'),
-            ),
-            const SizedBox(height: 12),
-            _UploadField(
-              label: 'Favicon 地址',
-              controller: faviconController,
-              uploading: uploadingField == 'favicon',
-              onUpload: () => uploadTo(faviconController, 'favicon'),
-            ),
-          ],
-        ),
+        builder: (context, setState) {
+          // 正在上传的字段（'logo' / 'favicon'），空串表示无上传任务
+          var uploadingField = '';
+
+          // 上传后地址相对服务器，需要完整 URL 供前台使用。
+          // 定义在 StatefulBuilder 内以便通过其 setState 刷新上传指示。
+          Future<void> uploadTo(
+            TextEditingController controller,
+            String field,
+          ) async {
+            final result = await FilePicker.platform.pickFiles(
+              type: FileType.image,
+              withData: true,
+            );
+            final file = (result == null || result.files.isEmpty)
+                ? null
+                : result.files.first;
+            if (file == null || file.bytes == null) return;
+            if (context.mounted) setState(() => uploadingField = field);
+            try {
+              final item = await ref.read(fileApiProvider).upload(
+                    fileName: file.name,
+                    fileBytes: file.bytes!,
+                  );
+              if (item != null) {
+                final serverUrl = ref.read(localStorageProvider).serverUrl;
+                controller.text = resolveFileUrl(item.url, serverUrl);
+              } else if (context.mounted) {
+                showGlobalSnack( '上传失败', error: true);
+              }
+            } on ApiException catch (error) {
+              showGlobalSnack( error.message, error: true);
+            } finally {
+              // 弹层可能在上传期间被关闭，需判挂载后再刷新
+              if (context.mounted) setState(() => uploadingField = '');
+            }
+          }
+
+          return Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              TextFormField(
+                controller: titleController,
+                decoration: const InputDecoration(labelText: '站点标题'),
+              ),
+              const SizedBox(height: 12),
+              TextFormField(
+                controller: subtitleController,
+                decoration: const InputDecoration(labelText: '站点副标题'),
+              ),
+              const SizedBox(height: 12),
+              _UploadField(
+                label: 'Logo 地址',
+                controller: logoController,
+                uploading: uploadingField == 'logo',
+                onUpload: () => uploadTo(logoController, 'logo'),
+                onPickFromLibrary: () async {
+                  final item = await showAttachmentPicker(
+                    context,
+                    imageOnly: true,
+                  );
+                  if (item == null || !context.mounted) return;
+                  final serverUrl = ref.read(localStorageProvider).serverUrl;
+                  logoController.text = resolveFileUrl(item.url, serverUrl);
+                },
+              ),
+              const SizedBox(height: 12),
+              _UploadField(
+                label: 'Favicon 地址',
+                controller: faviconController,
+                uploading: uploadingField == 'favicon',
+                onUpload: () => uploadTo(faviconController, 'favicon'),
+                onPickFromLibrary: () async {
+                  final item = await showAttachmentPicker(
+                    context,
+                    imageOnly: true,
+                  );
+                  if (item == null || !context.mounted) return;
+                  final serverUrl = ref.read(localStorageProvider).serverUrl;
+                  faviconController.text = resolveFileUrl(item.url, serverUrl);
+                },
+              ),
+            ],
+          );
+        },
       ),
       onSave: () async {
         final title = titleController.text.trim();
@@ -637,12 +669,16 @@ class _UploadField extends StatelessWidget {
     required this.controller,
     required this.uploading,
     required this.onUpload,
+    this.onPickFromLibrary,
   });
 
   final String label;
   final TextEditingController controller;
   final bool uploading;
   final VoidCallback onUpload;
+
+  /// 从附件库选择（为 null 时不展示该按钮）。
+  final VoidCallback? onPickFromLibrary;
 
   @override
   Widget build(BuildContext context) {
@@ -655,6 +691,14 @@ class _UploadField extends StatelessWidget {
           ),
         ),
         const SizedBox(width: 8),
+        if (onPickFromLibrary != null) ...[
+          IconButton.outlined(
+            onPressed: uploading ? null : onPickFromLibrary,
+            icon: const Icon(Icons.photo_library_outlined),
+            tooltip: '从附件库选择',
+          ),
+          const SizedBox(width: 8),
+        ],
         IconButton.outlined(
           onPressed: uploading ? null : onUpload,
           icon: uploading
@@ -664,6 +708,7 @@ class _UploadField extends StatelessWidget {
                   child: CircularProgressIndicator(strokeWidth: 2),
                 )
               : const Icon(Icons.upload_rounded),
+          tooltip: '上传文件',
         ),
       ],
     );

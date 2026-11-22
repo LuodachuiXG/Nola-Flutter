@@ -1,12 +1,12 @@
-import 'dart:io';
-
 import 'package:file_picker/file_picker.dart';
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:share_plus/share_plus.dart';
 
 import '../../../core/models/system_models.dart';
 import '../../../core/network/api_exception.dart';
+import '../../../core/utils/system_temp.dart';
 import '../../../shared/widgets/dialogs.dart';
 import '../../shell/ui/console_shell.dart';
 import '../data/backup_api.dart';
@@ -67,8 +67,11 @@ class BackupScreen extends ConsumerWidget {
 
       // 下载到临时目录后分享
       final fileName = result.path.split('/').last;
-      final savePath = '${Directory.systemTemp.path}/$fileName';
+      final savePath = '${systemTempPath()}/$fileName';
       await api.downloadExport(fileName, savePath);
+      // Web 端 dio.download 已触发浏览器直接下载 zip，
+      // 本地路径分享不可用，跳过
+      if (kIsWeb) return;
       if (context.mounted) {
         await SharePlus.instance.share(
           ShareParams(files: [XFile(savePath)], text: 'Nola 文章备份'),
@@ -124,7 +127,10 @@ class BackupScreen extends ConsumerWidget {
       allowedExtensions: ['zip'],
       withData: true,
     );
-    final file = result?.files.single;
+    // 空列表时 files.single 会抛 StateError，安全取第一个
+    final file = (result == null || result.files.isEmpty)
+        ? null
+        : result.files.first;
     if (file == null || file.bytes == null) return;
 
     try {

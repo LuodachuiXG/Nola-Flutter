@@ -14,29 +14,32 @@ Future<bool> showConfirmDialog(
   String cancelText = '取消',
   bool danger = false,
 }) async {
-  final theme = Theme.of(context);
   final result = await showDialog<bool>(
     context: context,
-    builder: (context) => AlertDialog(
-      title: Text(title),
-      content: content == null ? null : Text(content),
-      actions: [
-        TextButton(
-          onPressed: () => Navigator.of(context).pop(false),
-          child: Text(cancelText),
-        ),
-        FilledButton(
-          style: danger
-              ? FilledButton.styleFrom(
-                  backgroundColor: theme.colorScheme.error,
-                  foregroundColor: theme.colorScheme.onError,
-                )
-              : null,
-          onPressed: () => Navigator.of(context).pop(true),
-          child: Text(confirmText),
-        ),
-      ],
-    ),
+    builder: (context) {
+      // 在对话框内取主题，避免主题切换时颜色不更新
+      final theme = Theme.of(context);
+      return AlertDialog(
+        title: Text(title),
+        content: content == null ? null : Text(content),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(false),
+            child: Text(cancelText),
+          ),
+          FilledButton(
+            style: danger
+                ? FilledButton.styleFrom(
+                    backgroundColor: theme.colorScheme.error,
+                    foregroundColor: theme.colorScheme.onError,
+                  )
+                : null,
+            onPressed: () => Navigator.of(context).pop(true),
+            child: Text(confirmText),
+          ),
+        ],
+      );
+    },
   );
   return result ?? false;
 }
@@ -232,6 +235,8 @@ class _FormSheetState extends State<_FormSheet> {
 final scaffoldMessengerKey = GlobalKey<ScaffoldMessengerState>();
 
 /// 在任意位置显示提示 SnackBar（无需 BuildContext）。
+///
+/// [error] 为 true 时使用错误配色（与 [showSnack] 保持一致）。
 void showGlobalSnack(
   String message, {
   bool error = false,
@@ -239,6 +244,7 @@ void showGlobalSnack(
 }) {
   final messenger = scaffoldMessengerKey.currentState;
   if (messenger == null) return;
+  final theme = Theme.of(messenger.context);
   messenger
     ..hideCurrentSnackBar()
     ..showSnackBar(
@@ -246,13 +252,19 @@ void showGlobalSnack(
         content: Row(
           children: [
             if (icon != null) ...[
-              Icon(icon, size: 18),
+              Icon(
+                icon,
+                size: 18,
+                color: error ? theme.colorScheme.onError : null,
+              ),
               const SizedBox(width: 8),
             ],
             Expanded(child: Text(message)),
           ],
         ),
         behavior: SnackBarBehavior.floating,
+        backgroundColor:
+            error ? theme.colorScheme.error : theme.colorScheme.inverseSurface,
       ),
     );
 }

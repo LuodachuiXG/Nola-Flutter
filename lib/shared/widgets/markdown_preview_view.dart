@@ -1,10 +1,18 @@
 import 'dart:convert';
 
+import 'package:flutter/foundation.dart' show defaultTargetPlatform, kIsWeb;
 import 'package:flutter/services.dart' show rootBundle;
 import 'package:flutter/material.dart';
 import 'package:webview_flutter/webview_flutter.dart';
 
+import 'async_value_widget.dart' show EmptyPlaceholder;
 import 'markdown_preview_html.dart';
+
+/// 当前平台是否支持 WebView 预览（webview_flutter 无 Windows / Linux 实现）。
+bool get _previewSupported =>
+    kIsWeb ||
+    (defaultTargetPlatform != TargetPlatform.windows &&
+        defaultTargetPlatform != TargetPlatform.linux);
 
 /// Markdown 预览视图（WebView 渲染，与 Nola-Apple 实现保持一致）。
 ///
@@ -42,6 +50,8 @@ class _MarkdownPreviewViewState extends State<MarkdownPreviewView> {
   @override
   void initState() {
     super.initState();
+    // 不支持的平台不初始化 WebView，避免 MissingPluginException
+    if (!_previewSupported) return;
     loadMarkdownPreviewHtml().then((html) {
       return _controller.loadHtmlString(html);
     }).then((_) {
@@ -70,6 +80,12 @@ class _MarkdownPreviewViewState extends State<MarkdownPreviewView> {
 
   @override
   Widget build(BuildContext context) {
+    if (!_previewSupported) {
+      return const EmptyPlaceholder(
+        icon: Icons.visibility_off_outlined,
+        message: '当前平台暂不支持预览',
+      );
+    }
     return WebViewWidget(controller: _controller);
   }
 }

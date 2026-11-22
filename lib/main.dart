@@ -5,6 +5,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'app/app.dart';
+import 'app/window/title_bar.dart' as window;
 import 'core/storage/local_storage.dart';
 
 Future<void> main() async {
@@ -15,6 +16,9 @@ Future<void> main() async {
   if (kIsWeb && Uri.base.queryParameters.containsKey('a11y')) {
     SemanticsBinding.instance.ensureSemantics();
   }
+
+  // 桌面端（Windows / Linux）隐藏系统标题栏，使用自绘标题栏。
+  await window.initDesktopWindow();
 
   // 初始化本地存储，注入 Riverpod 容器
   final prefs = await SharedPreferences.getInstance();

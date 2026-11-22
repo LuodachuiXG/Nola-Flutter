@@ -204,8 +204,11 @@ class PostEditorNotifier extends AsyncNotifier<EditorState> {
       state = AsyncData(
         current.copyWith(saving: false, dirty: false, contents: contents),
       );
-    } catch (error, stackTrace) {
-      state = AsyncError(error, stackTrace);
+    } catch (_) {
+      // 失败时保留原数据并抛出：若置为 AsyncError 会丢失 value，
+      // 整页被错误占位覆盖导致未保存内容丢失，且 UI 无法感知错误
+      state = AsyncData(current.copyWith(saving: false));
+      rethrow;
     }
   }
 
@@ -214,17 +217,23 @@ class PostEditorNotifier extends AsyncNotifier<EditorState> {
     final current = state.value;
     if (current == null || current.loadingContent) return;
     state = AsyncData(current.copyWith(loadingContent: true));
-    final draft =
-        await ref.read(postApiProvider).postDraftContent(postId, draftName);
-    state = AsyncData(
-      current.copyWith(
-        content: draft.content,
-        tab: EditorTab.draft,
-        draftName: draftName,
-        loadingContent: false,
-        dirty: false,
-      ),
-    );
+    try {
+      final draft =
+          await ref.read(postApiProvider).postDraftContent(postId, draftName);
+      state = AsyncData(
+        current.copyWith(
+          content: draft.content,
+          tab: EditorTab.draft,
+          draftName: draftName,
+          loadingContent: false,
+          dirty: false,
+        ),
+      );
+    } catch (_) {
+      // 失败时复位加载标记，避免 UI 永久卡在加载态、无法切换正文/草稿
+      state = AsyncData(current.copyWith(loadingContent: false));
+      rethrow;
+    }
   }
 
   /// 切回正文编辑。
@@ -232,16 +241,23 @@ class PostEditorNotifier extends AsyncNotifier<EditorState> {
     final current = state.value;
     if (current == null || current.loadingContent) return;
     state = AsyncData(current.copyWith(loadingContent: true));
-    final publish = await ref.read(postApiProvider).postPublishContent(postId);
-    state = AsyncData(
-      current.copyWith(
-        content: publish.content,
-        tab: EditorTab.publish,
-        draftName: null,
-        loadingContent: false,
-        dirty: false,
-      ),
-    );
+    try {
+      final publish =
+          await ref.read(postApiProvider).postPublishContent(postId);
+      state = AsyncData(
+        current.copyWith(
+          content: publish.content,
+          tab: EditorTab.publish,
+          draftName: null,
+          loadingContent: false,
+          dirty: false,
+        ),
+      );
+    } catch (_) {
+      // 失败时复位加载标记，避免 UI 永久卡在加载态、无法切换正文/草稿
+      state = AsyncData(current.copyWith(loadingContent: false));
+      rethrow;
+    }
   }
 
   /// 将编辑器当前内容另存为草稿。
@@ -275,8 +291,11 @@ class PostEditorNotifier extends AsyncNotifier<EditorState> {
           dirty: false,
         ),
       );
-    } catch (error, stackTrace) {
-      state = AsyncError(error, stackTrace);
+    } catch (_) {
+      // 失败时保留原数据并抛出：若置为 AsyncError 会丢失 value，
+      // 整页被错误占位覆盖导致未保存内容丢失，且 UI 无法感知错误
+      state = AsyncData(current.copyWith(saving: false));
+      rethrow;
     }
   }
 
@@ -321,7 +340,9 @@ class PostEditorNotifier extends AsyncNotifier<EditorState> {
     state = AsyncData(
       current.copyWith(
         contents: contents,
-        draftName: isActive ? newName : null,
+        // 重命名的不是当前编辑的草稿时，保持当前草稿名不变
+        // （copyWith 的 draftName 为直接覆盖，传 null 会误清状态）
+        draftName: isActive ? newName : current.draftName,
       ),
     );
   }

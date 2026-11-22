@@ -520,7 +520,16 @@ class _FileTile extends ConsumerWidget {
         child: GestureDetector(
           onTap: () => Navigator.of(context).pop(),
           child: InteractiveViewer(
-            child: Image.network(url),
+            child: Image.network(
+              url,
+              errorBuilder: (_, _, _) => const Center(
+                child: Icon(
+                  Icons.broken_image_outlined,
+                  color: Colors.white,
+                  size: 48,
+                ),
+              ),
+            ),
           ),
         ),
       ),
@@ -537,7 +546,8 @@ class _FileTile extends ConsumerWidget {
     final groups = await ref.read(fileGroupsProvider.future);
     if (!context.mounted) return;
     int? newGroupId = file.fileGroupId;
-    final result = await showDialog<int?>(
+    // 用非空包装类型区分「取消」与「确认移到默认分组」（目标为 null）
+    final result = await showDialog<_MoveTarget>(
       context: context,
       builder: (context) => StatefulBuilder(
         builder: (context, setState) => AlertDialog(
@@ -562,7 +572,8 @@ class _FileTile extends ConsumerWidget {
               child: const Text('取消'),
             ),
             FilledButton(
-              onPressed: () => Navigator.of(context).pop(newGroupId),
+              onPressed: () =>
+                  Navigator.of(context).pop(_MoveTarget(newGroupId)),
               child: const Text('移动'),
             ),
           ],
@@ -571,15 +582,20 @@ class _FileTile extends ConsumerWidget {
     );
     if (result == null) return;
     try {
-      await ref
-          .read(fileApiProvider)
-          .moveFiles([file.fileId], result);
+      await ref.read(fileApiProvider).moveFiles([file.fileId], result.groupId);
       if (context.mounted) showGlobalSnack( '文件已移动');
       await ref.read(fileListProvider.notifier).refresh();
     } on ApiException catch (error) {
       if (context.mounted) showGlobalSnack( error.message, error: true);
     }
   }
+}
+
+/// 移动文件对话框的确认结果（groupId 为 null 表示默认分组）。
+class _MoveTarget {
+  const _MoveTarget(this.groupId);
+
+  final int? groupId;
 }
 
 /// 分组管理弹层（使用列表页传入的 ref 操作数据）。

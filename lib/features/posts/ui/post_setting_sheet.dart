@@ -6,6 +6,7 @@ import '../../../core/models/enums.dart';
 import '../../../core/models/post.dart';
 import '../../../core/models/taxonomy.dart';
 import '../../../core/network/api_exception.dart';
+import '../../../shared/widgets/attachment_picker.dart';
 import '../../../shared/widgets/dialogs.dart';
 import '../../files/data/file_api.dart';
 import '../data/post_api.dart';
@@ -96,7 +97,10 @@ class _PostSettingSheetState extends ConsumerState<_PostSettingSheet> {
       type: FileType.image,
       withData: true,
     );
-    final file = result?.files.single;
+    // 空列表时 files.single 会抛 StateError，安全取第一个
+    final file = (result == null || result.files.isEmpty)
+        ? null
+        : result.files.first;
     if (file == null || file.bytes == null) return;
     setState(() => _uploadingCover = true);
     try {
@@ -292,6 +296,19 @@ class _PostSettingSheetState extends ConsumerState<_PostSettingSheet> {
                         ),
                         const SizedBox(width: 8),
                         IconButton.outlined(
+                          onPressed: () async {
+                            final item = await showAttachmentPicker(
+                              context,
+                              imageOnly: true,
+                            );
+                            if (item == null) return;
+                            _coverController.text = item.url;
+                          },
+                          icon: const Icon(Icons.photo_library_outlined),
+                          tooltip: '从附件库选择',
+                        ),
+                        const SizedBox(width: 8),
+                        IconButton.outlined(
                           onPressed: _uploadingCover ? null : _pickCover,
                           icon: _uploadingCover
                               ? const SizedBox(
@@ -309,7 +326,11 @@ class _PostSettingSheetState extends ConsumerState<_PostSettingSheet> {
                     // 分类
                     categories.when(
                       data: (data) => DropdownButtonFormField<int>(
-                        initialValue: _categoryId,
+                        // 文章原分类可能已被删除，失效时回退为「无分类」
+                        initialValue:
+                            data.any((c) => c.categoryId == _categoryId)
+                                ? _categoryId
+                                : null,
                         decoration: const InputDecoration(
                           labelText: '分类',
                         ),
@@ -459,30 +480,44 @@ class _TagSelector extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
     if (tags.isEmpty) {
       return Text(
-        '暂无标签',
-        style: Theme.of(context).textTheme.bodySmall,
+        '标签：暂无',
+        style: theme.textTheme.bodySmall,
       );
     }
-    return Wrap(
-      spacing: 8,
-      runSpacing: 0,
+    // 标签较多时限高内部滚动，避免把整个弹层撑得拥挤。
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        for (final tag in tags)
-          FilterChip(
-            label: Text(tag.displayName),
-            selected: selectedIds.contains(tag.tagId),
-            onSelected: (selected) {
-              final ids = [...selectedIds];
-              if (selected) {
-                ids.add(tag.tagId);
-              } else {
-                ids.remove(tag.tagId);
-              }
-              onChanged(ids);
-            },
+        Text('标签（已选 ${selectedIds.length}）', style: theme.textTheme.bodySmall),
+        const SizedBox(height: 6),
+        ConstrainedBox(
+          constraints: const BoxConstraints(maxHeight: 160),
+          child: SingleChildScrollView(
+            child: Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: [
+                for (final tag in tags)
+                  FilterChip(
+                    label: Text(tag.displayName),
+                    selected: selectedIds.contains(tag.tagId),
+                    onSelected: (selected) {
+                      final ids = [...selectedIds];
+                      if (selected) {
+                        ids.add(tag.tagId);
+                      } else {
+                        ids.remove(tag.tagId);
+                      }
+                      onChanged(ids);
+                    },
+                  ),
+              ],
+            ),
           ),
+        ),
       ],
     );
   }

@@ -4,7 +4,9 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/models/blog_models.dart';
 import '../../../core/network/api_client.dart';
+import '../../../core/network/server_probe.dart';
 import '../../../core/network/sse_client.dart';
+import '../../../core/storage/local_storage.dart';
 
 /// 概览 API。
 class DashboardApi {
@@ -47,4 +49,38 @@ final onlineCountProvider = StreamProvider.autoDispose<int>((ref) {
     }
     return 0;
   });
+});
+
+/// 服务器延迟测量结果。
+class ServerLatency {
+  const ServerLatency({required this.available, this.latencyMs});
+
+  const ServerLatency.unreachable() : this(available: false);
+
+  /// 服务器是否可达（且为 Nola 服务）。
+  final bool available;
+
+  /// 请求公开接口 `/api/config/blog` 的往返耗时（毫秒）。
+  final int? latencyMs;
+}
+
+/// 周期探测服务器延迟：每 10 秒请求一次公开接口并统计往返耗时。
+///
+/// 离开概览页（autoDispose）后自动停止探测。
+final serverLatencyProvider =
+    StreamProvider.autoDispose<ServerLatency>((ref) async* {
+  final serverUrl = ref.watch(localStorageProvider).serverUrl;
+  while (true) {
+    final watch = Stopwatch()..start();
+    try {
+      final result = await ServerProbe.probe(serverUrl);
+      watch.stop();
+      yield result.available
+          ? ServerLatency(available: true, latencyMs: watch.elapsedMilliseconds)
+          : const ServerLatency.unreachable();
+    } catch (_) {
+      yield const ServerLatency.unreachable();
+    }
+    await Future<void>.delayed(const Duration(seconds: 10));
+  }
 });

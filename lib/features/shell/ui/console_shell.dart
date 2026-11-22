@@ -154,7 +154,6 @@ class _ConsoleShellState extends State<ConsoleShell> {
         body: Row(
           children: [
             _buildRail(context, selectedIndex),
-            const VerticalDivider(width: 1),
             Expanded(child: child),
           ],
         ),

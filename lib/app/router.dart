@@ -29,7 +29,7 @@ final rootNavigatorKey = GlobalKey<NavigatorState>();
 final routerProvider = Provider<GoRouter>((ref) {
   final session = ref.watch(sessionProvider);
 
-  return GoRouter(
+  final router = GoRouter(
     navigatorKey: rootNavigatorKey,
     initialLocation: '/dashboard',
     redirect: (context, state) {
@@ -110,4 +110,8 @@ final routerProvider = Provider<GoRouter>((ref) {
       ),
     ],
   );
+
+  // 会话变化会重建路由，释放旧实例的监听与资源
+  ref.onDispose(router.dispose);
+  return router;
 });
