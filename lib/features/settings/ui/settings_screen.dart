@@ -3,13 +3,16 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../app/theme.dart';
+import '../../../core/constants/app_constants.dart';
 import '../../../core/models/blog_models.dart';
 import '../../../core/models/user.dart';
 import '../../../core/network/api_exception.dart';
 import '../../../core/storage/local_storage.dart';
 import '../../../core/utils/formatters.dart';
+import '../../../shared/utils/external_link.dart';
 import '../../../shared/widgets/attachment_picker.dart';
 import '../../../shared/widgets/dialogs.dart';
+import '../providers/app_info_providers.dart';
 import '../providers/app_settings_providers.dart';
 import '../../auth/providers/auth_providers.dart';
 import '../../auth/data/auth_api.dart';
@@ -127,6 +130,12 @@ class SettingsScreen extends ConsumerWidget {
               ),
             ],
           ),
+          const SizedBox(height: 16),
+          // 版本与构建信息
+          const AppInfoSection(),
+          const SizedBox(height: 16),
+          // 开源地址
+          const OpenSourceSection(),
         ],
       ),
     );
@@ -554,6 +563,74 @@ class SettingsScreen extends ConsumerWidget {
           ),
         ],
       ),
+    );
+  }
+}
+
+/// 关于分组：应用版本与当前构建 / 运行环境信息。
+class AppInfoSection extends ConsumerWidget {
+  const AppInfoSection({super.key});
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final info = ref.watch(appBuildInfoProvider).value;
+    return _SettingsGroup(
+      title: '关于',
+      children: [
+        ListTile(
+          leading: const Icon(Icons.info_outline),
+          title: const Text('应用版本'),
+          subtitle: Text(info?.versionLabel ?? '—'),
+        ),
+        ListTile(
+          leading: const Icon(Icons.build_outlined),
+          title: const Text('构建模式'),
+          subtitle: Text(info?.buildMode ?? '—'),
+        ),
+        ListTile(
+          leading: const Icon(Icons.devices_outlined),
+          title: const Text('运行平台'),
+          subtitle: Text(info?.platform ?? '—'),
+        ),
+        ListTile(
+          leading: const Icon(Icons.computer_outlined),
+          title: const Text('系统版本'),
+          subtitle: Text(info?.osVersion ?? '—'),
+        ),
+        ListTile(
+          leading: const Icon(Icons.code_rounded),
+          title: const Text('Dart 版本'),
+          subtitle: Text(info?.dartVersion ?? '—'),
+        ),
+      ],
+    );
+  }
+}
+
+/// 开源地址分组：Flutter 管理端与 Nola 博客仓库。
+class OpenSourceSection extends StatelessWidget {
+  const OpenSourceSection({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    return _SettingsGroup(
+      title: '开源地址',
+      children: [
+        ListTile(
+          leading: const Icon(Icons.flutter_dash),
+          title: const Text('Flutter 客户端'),
+          subtitle: const Text(kFlutterClientRepoUrl),
+          trailing: const Icon(Icons.open_in_new_rounded, size: 18),
+          onTap: () => openExternalUrl(context, kFlutterClientRepoUrl),
+        ),
+        ListTile(
+          leading: const Icon(Icons.rss_feed_rounded),
+          title: const Text('Nola 博客'),
+          subtitle: const Text(kNolaRepoUrl),
+          trailing: const Icon(Icons.open_in_new_rounded, size: 18),
+          onTap: () => openExternalUrl(context, kNolaRepoUrl),
+        ),
+      ],
     );
   }
 }

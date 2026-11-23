@@ -4,6 +4,13 @@ library;
 /// 默认服务器地址（Nola 后端 Ktor 默认端口 8098）。
 const String kDefaultServerUrl = 'http://127.0.0.1:8098';
 
+/// Flutter 管理端开源地址。
+const String kFlutterClientRepoUrl =
+    'https://github.com/LuodachuiXG/Nola-Flutter';
+
+/// Nola 博客开源地址。
+const String kNolaRepoUrl = 'https://github.com/LuodachuiXG/Nola';
+
 /// 连接超时时长。
 const Duration kConnectTimeout = Duration(seconds: 10);
 

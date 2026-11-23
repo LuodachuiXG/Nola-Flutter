@@ -29,6 +29,10 @@ dependencies:
   share_plus: ^12.0.0
   # Markdown 预览（WebView 渲染）
   webview_flutter: ^4.13.0
+  # 应用版本 / 构建号（设置页关于信息）
+  package_info_plus: ^9.0.1
+  # 打开开源仓库等外部链接
+  url_launcher: ^6.3.3
   window_manager: 0.5.1
 
 dev_dependencies:
@@ -43,6 +47,8 @@ dev_dependencies:
   image: ^4.5.0
   # 编辑器预览测试中替换 WebView 平台实现
   webview_flutter_platform_interface: ^2.15.1
+  # 开源链接测试中替换 URL 启动实现
+  url_launcher_platform_interface: ^2.3.2
 
 # 应用图标生成配置（dart run flutter_launcher_icons）
 flutter_launcher_icons:
