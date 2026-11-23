@@ -112,24 +112,36 @@ class PostEditScreen extends ConsumerWidget {
               ? null
               : () => _showDraftSheet(context, ref, state.post.postId),
         ),
-        if (state != null && state.tab == EditorTab.publish)
-          Padding(
-            padding: const EdgeInsets.only(right: 12),
-            child: FilledButton.icon(
-              onPressed: state.saving
-                  ? null
-                  : () => _savePublish(context, ref, state.post.postId),
-              icon: state.saving
-                  ? const SizedBox(
-                      width: 16,
-                      height: 16,
-                      child: CircularProgressIndicator(strokeWidth: 2),
-                    )
-                  : const Icon(Icons.save_outlined, size: 18),
-              label: const Text('保存正文'),
-            ),
-          ),
+        if (state != null) _buildSaveButton(context, ref, state),
       ],
+    );
+  }
+
+  /// 顶栏保存按钮：正文保存正文，草稿保存当前草稿。
+  Widget _buildSaveButton(
+    BuildContext context,
+    WidgetRef ref,
+    EditorState state,
+  ) {
+    final isDraft = state.tab == EditorTab.draft;
+    final canSave = !state.saving && (!isDraft || state.draftName != null);
+    return Padding(
+      padding: const EdgeInsets.only(right: 12),
+      child: FilledButton.icon(
+        onPressed: canSave
+            ? () => isDraft
+                ? _saveDraft(context, ref, state)
+                : _savePublish(context, ref, state.post.postId)
+            : null,
+        icon: state.saving
+            ? const SizedBox(
+                width: 16,
+                height: 16,
+                child: CircularProgressIndicator(strokeWidth: 2),
+              )
+            : const Icon(Icons.save_outlined, size: 18),
+        label: Text(isDraft ? '保存草稿' : '保存正文'),
+      ),
     );
   }
 
@@ -139,6 +151,23 @@ class PostEditScreen extends ConsumerWidget {
       if (context.mounted) showGlobalSnack( '正文已保存');
     } on ApiException catch (error) {
       if (context.mounted) showGlobalSnack( error.message, error: true);
+    }
+  }
+
+  Future<void> _saveDraft(
+    BuildContext context,
+    WidgetRef ref,
+    EditorState state,
+  ) async {
+    final draftName = state.draftName;
+    if (draftName == null) return;
+    try {
+      await ref
+          .read(postEditorProvider(state.post.postId).notifier)
+          .saveDraft(draftName);
+      if (context.mounted) showGlobalSnack('草稿已保存');
+    } on ApiException catch (error) {
+      if (context.mounted) showGlobalSnack(error.message, error: true);
     }
   }
 

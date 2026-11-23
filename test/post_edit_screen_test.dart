@@ -1,10 +1,12 @@
 import 'package:dio/dio.dart' show Dio;
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:nola/core/models/post.dart';
 import 'package:nola/core/network/api_client.dart';
 import 'package:nola/features/posts/data/post_api.dart';
+import 'package:nola/features/posts/providers/post_providers.dart';
 import 'package:nola/features/posts/ui/post_edit_screen.dart';
 import 'package:nola/shared/widgets/markdown_preview_view.dart'
     show loadMarkdownPreviewHtml;
@@ -126,6 +128,71 @@ void main() {
       await tester.pumpWidget(const SizedBox.shrink());
     },
   );
+
+  test('编辑草稿时输入不清空草稿名，保存更新当前草稿', () async {
+    final api = _FakePostApi(_longContent);
+    final container = ProviderContainer.test(
+      overrides: [postApiProvider.overrideWithValue(api)],
+    );
+    await container.read(postEditorProvider(1).future);
+    final notifier = container.read(postEditorProvider(1).notifier);
+
+    await notifier.loadDraft('草稿A');
+    notifier.updateContent('修改后的草稿内容');
+
+    final edited = container.read(postEditorProvider(1)).requireValue;
+    expect(edited.draftName, '草稿A', reason: '输入内容不应清空当前草稿名');
+    expect(edited.dirty, isTrue);
+
+    await notifier.saveDraft(edited.draftName!);
+    expect(api.updatedDrafts, hasLength(1));
+    expect(api.updatedDrafts.single.content, '修改后的草稿内容');
+    expect(api.updatedDrafts.single.draftName, '草稿A');
+    expect(api.addedDrafts, isEmpty, reason: '保存已有草稿应走更新而不是新建');
+
+    final saved = container.read(postEditorProvider(1)).requireValue;
+    expect(saved.dirty, isFalse);
+    expect(saved.tab, EditorTab.draft);
+    expect(saved.draftName, '草稿A');
+  });
+
+  testWidgets(
+    '草稿编辑显示保存按钮，按钮与快捷键都能保存草稿',
+    variant: TargetPlatformVariant.only(TargetPlatform.android),
+    (tester) async {
+      _setViewSize(tester, _wideSize);
+      final api = _FakePostApi(_longContent);
+      await _pumpEditor(tester, api: api);
+
+      // 从草稿列表加载草稿
+      await tester.tap(find.text('草稿'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('草稿A'));
+      await tester.pumpAndSettle();
+
+      expect(find.text('保存草稿'), findsOneWidget);
+
+      // 输入后草稿名仍保留，快捷键可以保存
+      await tester.enterText(find.byType(TextField), '修改后的草稿内容');
+      await tester.pumpAndSettle();
+      expect(find.text('保存草稿'), findsOneWidget);
+
+      await tester.sendKeyDownEvent(LogicalKeyboardKey.controlLeft);
+      await tester.sendKeyEvent(LogicalKeyboardKey.keyS);
+      await tester.sendKeyUpEvent(LogicalKeyboardKey.controlLeft);
+      await tester.pumpAndSettle();
+      expect(api.updatedDrafts, hasLength(1));
+      expect(api.updatedDrafts.last.content, '修改后的草稿内容');
+      expect(api.updatedDrafts.last.draftName, '草稿A');
+
+      // 顶栏按钮同样可以保存
+      await tester.tap(find.text('保存草稿'));
+      await tester.pumpAndSettle();
+      expect(api.updatedDrafts, hasLength(2));
+
+      await tester.pumpWidget(const SizedBox.shrink());
+    },
+  );
 }
 
 void _setViewSize(WidgetTester tester, Size size) {
@@ -137,11 +204,15 @@ void _setViewSize(WidgetTester tester, Size size) {
   });
 }
 
-Future<void> _pumpEditor(WidgetTester tester) async {
+Future<void> _pumpEditor(
+  WidgetTester tester, {
+  _FakePostApi? api,
+}) async {
   await tester.pumpWidget(
     ProviderScope(
       overrides: [
-        postApiProvider.overrideWithValue(_FakePostApi(_longContent)),
+        postApiProvider
+            .overrideWithValue(api ?? _FakePostApi(_longContent)),
       ],
       child: const MaterialApp(home: PostEditScreen(postId: 1)),
     ),
@@ -189,6 +260,12 @@ class _FakePostApi extends PostApi {
 
   final String _content;
 
+  /// 已保存的草稿内容（加载草稿时返回）。
+  String draftContent = '草稿内容';
+
+  final List<({String content, String draftName})> updatedDrafts = [];
+  final List<({String content, String draftName})> addedDrafts = [];
+
   @override
   Future<Post?> post(int postId) async => Post.fromJson({
         'postId': postId,
@@ -198,7 +275,14 @@ class _FakePostApi extends PostApi {
       });
 
   @override
-  Future<List<PostContentMeta>> postContents(int postId) async => const [];
+  Future<List<PostContentMeta>> postContents(int postId) async => [
+        PostContentMeta.fromJson({
+          'postContentId': 2,
+          'postId': postId,
+          'status': 'DRAFT',
+          'draftName': '草稿A',
+        }),
+      ];
 
   @override
   Future<PostContent> postPublishContent(int postId) async =>
@@ -208,6 +292,38 @@ class _FakePostApi extends PostApi {
         'content': _content,
         'status': 'PUBLISHED',
       });
+
+  @override
+  Future<PostContent> postDraftContent(int postId, String draftName) async =>
+      PostContent.fromJson({
+        'postContentId': 2,
+        'postId': postId,
+        'content': draftContent,
+        'status': 'DRAFT',
+        'draftName': draftName,
+      });
+
+  @override
+  Future<bool> updateDraft({
+    required int postId,
+    required String content,
+    required String draftName,
+  }) async {
+    updatedDrafts.add((content: content, draftName: draftName));
+    draftContent = content;
+    return true;
+  }
+
+  @override
+  Future<bool> addDraft({
+    required int postId,
+    required String content,
+    required String draftName,
+  }) async {
+    addedDrafts.add((content: content, draftName: draftName));
+    draftContent = content;
+    return true;
+  }
 }
 
 class _FakeWebViewPlatform extends WebViewPlatform {

@@ -137,11 +137,14 @@ class EditorState {
   /// 内容是否有未保存修改。
   final bool dirty;
 
+  /// [clearDraftName] 为 true 时清空草稿名；其余情况沿用 [draftName] 或原值，
+  /// 避免输入内容等局部更新误清当前草稿。
   EditorState copyWith({
     List<PostContentMeta>? contents,
     String? content,
     EditorTab? tab,
     String? draftName,
+    bool clearDraftName = false,
     bool? loadingContent,
     bool? saving,
     bool? dirty,
@@ -151,7 +154,7 @@ class EditorState {
         contents: contents ?? this.contents,
         content: content ?? this.content,
         tab: tab ?? this.tab,
-        draftName: draftName,
+        draftName: clearDraftName ? null : (draftName ?? this.draftName),
         loadingContent: loadingContent ?? this.loadingContent,
         saving: saving ?? this.saving,
         dirty: dirty ?? this.dirty,
@@ -255,7 +258,7 @@ class PostEditorNotifier extends AsyncNotifier<EditorState> {
         current.copyWith(
           content: publish.content,
           tab: EditorTab.publish,
-          draftName: null,
+          clearDraftName: true,
           loadingContent: false,
           dirty: false,
         ),
@@ -323,7 +326,7 @@ class PostEditorNotifier extends AsyncNotifier<EditorState> {
           contents: contents,
           content: publish.content,
           tab: EditorTab.publish,
-          draftName: null,
+          clearDraftName: true,
           dirty: false,
         ),
       );
@@ -350,9 +353,8 @@ class PostEditorNotifier extends AsyncNotifier<EditorState> {
     state = AsyncData(
       current.copyWith(
         contents: contents,
-        // 重命名的不是当前编辑的草稿时，保持当前草稿名不变
-        // （copyWith 的 draftName 为直接覆盖，传 null 会误清状态）
-        draftName: isActive ? newName : current.draftName,
+        // 重命名的不是当前编辑的草稿时，draftName 传 null 会沿用原值
+        draftName: isActive ? newName : null,
       ),
     );
   }
