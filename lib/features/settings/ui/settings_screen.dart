@@ -14,7 +14,9 @@ import '../../../shared/widgets/attachment_picker.dart';
 import '../../../shared/widgets/dialogs.dart';
 import '../providers/app_info_providers.dart';
 import '../providers/app_settings_providers.dart';
+import '../../auth/data/account_verifier.dart';
 import '../../auth/providers/auth_providers.dart';
+import '../../auth/providers/biometric_login_providers.dart';
 import '../../auth/data/auth_api.dart';
 import '../../files/data/file_api.dart';
 import '../../shell/ui/console_shell.dart';
@@ -28,6 +30,7 @@ class SettingsScreen extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final session = ref.watch(sessionProvider);
+    final biometric = ref.watch(biometricLoginProvider).value;
 
     return Scaffold(
       appBar: const ConsoleAppBar(title: '设置'),
@@ -104,6 +107,18 @@ class SettingsScreen extends ConsumerWidget {
                 title: const Text('修改密码'),
                 trailing: const Icon(Icons.chevron_right),
                 onTap: () => _showPasswordSheet(context, ref),
+              ),
+              ListTile(
+                leading: const Icon(Icons.fingerprint),
+                title: const Text('生物识别登录'),
+                subtitle: Text(_biometricSubtitle(biometric)),
+                trailing: Switch(
+                  value: biometric?.enabled ?? false,
+                  onChanged: biometric == null || !biometric.supported
+                      ? null
+                      : (enabled) =>
+                          _toggleBiometricLogin(context, ref, enabled),
+                ),
               ),
               ListTile(
                 leading: Icon(
@@ -434,6 +449,10 @@ class SettingsScreen extends ConsumerWidget {
         }
         try {
           await ref.read(authApiProvider).updatePassword(password);
+          // 同步更新生物识别登录保存的密码
+          await ref
+              .read(biometricLoginProvider.notifier)
+              .updatePassword(password);
           if (context.mounted) showGlobalSnack( '密码已修改');
           return true;
         } on ApiException catch (error) {
@@ -444,7 +463,86 @@ class SettingsScreen extends ConsumerWidget {
     );
   }
 
-  /// 退出登录。
+  /// 生物识别登录开关说明文案。
+  String _biometricSubtitle(BiometricLoginState? state) {
+    if (state == null) return '正在检测设备支持…';
+    if (!state.supported) return '当前设备不支持生物识别或设备密码';
+    if (state.enabled) {
+      final username = state.username;
+      return username == null || username.isEmpty
+          ? '已开启'
+          : '已开启（账号：$username）';
+    }
+    return '开启后可用 Face ID / 指纹 / 设备密码快速登录';
+  }
+
+  /// 切换生物识别登录。
+  ///
+  /// 开启前校验当前账号密码并完成一次系统身份验证，避免保存错误密码。
+  Future<void> _toggleBiometricLogin(
+    BuildContext context,
+    WidgetRef ref,
+    bool enabled,
+  ) async {
+    final notifier = ref.read(biometricLoginProvider.notifier);
+    if (!enabled) {
+      await notifier.disable();
+      if (context.mounted) showGlobalSnack('已关闭生物识别登录');
+      return;
+    }
+    final session = ref.read(sessionProvider);
+    if (session == null) return;
+    final password = await _promptAccountPassword(context);
+    if (password == null || password.isEmpty) return;
+    try {
+      // 独立请求校验密码，错误密码不会触发全局 401 登出
+      await ref.read(accountVerifierProvider).verify(
+            serverUrl: ref.read(localStorageProvider).serverUrl,
+            username: session.username,
+            password: password,
+          );
+    } on ApiException catch (error) {
+      if (context.mounted) showGlobalSnack(error.message, error: true);
+      return;
+    }
+    final saved = await notifier.enable(session.username, password);
+    if (!context.mounted) return;
+    if (saved) {
+      showGlobalSnack('已启用生物识别登录');
+    } else {
+      showGlobalSnack('未通过身份验证，暂未启用', error: true);
+    }
+  }
+
+  /// 输入当前账号密码（用于开启生物识别登录）。
+  Future<String?> _promptAccountPassword(BuildContext context) {
+    final controller = TextEditingController();
+    return showDialog<String>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('验证账号密码'),
+        content: TextField(
+          controller: controller,
+          autofocus: true,
+          obscureText: true,
+          decoration: const InputDecoration(labelText: '当前密码'),
+          onSubmitted: (value) => Navigator.of(dialogContext).pop(value),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(),
+            child: const Text('取消'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(dialogContext).pop(controller.text),
+            child: const Text('下一步'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// 退出登录（保留生物识别登录凭据）。
   Future<void> _logout(BuildContext context, WidgetRef ref) async {
     final confirmed = await showConfirmDialog(
       context,

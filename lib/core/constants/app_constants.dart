@@ -41,4 +41,7 @@ final class StorageKeys {
 
   /// 已保存的服务器地址列表（JSON 数组）。
   static const String savedServers = 'nola.server.saved';
+
+  /// 生物识别登录偏好（按服务器地址保存的 JSON 对象）。
+  static const String biometric = 'nola.auth.biometric';
 }

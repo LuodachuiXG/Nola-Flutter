@@ -11,6 +11,7 @@ import '../../../shared/widgets/dialogs.dart';
 import '../../../core/models/blog_models.dart';
 import '../data/auth_api.dart';
 import '../providers/auth_providers.dart';
+import '../providers/biometric_login_providers.dart';
 
 /// 登录页模式。
 enum _LoginMode {
@@ -61,6 +62,12 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
   List<String> _savedServers = [];
   bool _probing = false;
   String? _probeError;
+
+  /// 生物识别自动登录是否已尝试（每次进入页面仅自动弹一次）。
+  bool _biometricAutoTried = false;
+
+  /// 生物识别验证 / 登录进行中。
+  bool _biometricRunning = false;
 
   @override
   void initState() {
@@ -120,6 +127,57 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
       });
     } finally {
       if (mounted) setState(() => _loadingBlogInfo = false);
+    }
+    _maybeAutoBiometricLogin();
+  }
+
+  /// 进入登录页后自动拉起一次生物识别登录。
+  ///
+  /// 仅在服务可用、处于登录模式且已启用生物识别时触发；
+  /// 用户取消后本次进入不再重复弹起。
+  Future<void> _maybeAutoBiometricLogin() async {
+    if (_biometricAutoTried || !mounted) return;
+    if (!_connected || _mode != _LoginMode.login) return;
+    _biometricAutoTried = true;
+    final state = await ref.read(biometricLoginProvider.future);
+    if (!mounted || !state.enabled) return;
+    await _loginWithBiometric(auto: true);
+  }
+
+  /// 使用已保存的账号密码通过生物识别登录。
+  Future<void> _loginWithBiometric({bool auto = false}) async {
+    if (_biometricRunning || _submitting) return;
+    setState(() => _biometricRunning = true);
+    try {
+      final credential = await ref
+          .read(biometricLoginProvider.notifier)
+          .authenticateAndRead();
+      if (!mounted) return;
+      if (credential == null) {
+        if (!auto) {
+          showGlobalSnack('未通过身份验证，请重试或使用账号密码登录');
+        }
+        return;
+      }
+      _usernameController.text = credential.username;
+      _passwordController.text = credential.password;
+      try {
+        await ref.read(sessionProvider.notifier).login(
+              credential.username,
+              credential.password,
+            );
+        if (!mounted) return;
+        context.go('/dashboard');
+      } on ApiException catch (error) {
+        if (!mounted) return;
+        // 保存的账号密码已失效：清除后回落到手动登录
+        await ref.read(biometricLoginProvider.notifier).clearInvalid();
+        if (mounted) {
+          showGlobalSnack('生物识别登录失败：${error.message}', error: true);
+        }
+      }
+    } finally {
+      if (mounted) setState(() => _biometricRunning = false);
     }
   }
 
@@ -191,6 +249,8 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
   Future<void> _applyServer(String url) async {
     final storage = ref.read(localStorageProvider);
     await storage.setServerUrl(url);
+    // 生物识别登录状态按服务器隔离，切换后重新加载
+    ref.invalidate(biometricLoginProvider);
     // 去重后置顶到列表首位
     final servers = [
       url,
@@ -224,12 +284,15 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
   Future<void> _submitLogin() async {
     if (!_loginFormKey.currentState!.validate() || _submitting) return;
     setState(() => _submitting = true);
+    final username = _usernameController.text.trim();
+    final password = _passwordController.text;
     try {
-      await ref.read(sessionProvider.notifier).login(
-            _usernameController.text.trim(),
-            _passwordController.text,
-          );
+      await ref.read(sessionProvider.notifier).login(username, password);
       if (!mounted) return;
+      // 记录待处理的启用请求，进入控制台后由 Shell 弹出提示
+      ref
+          .read(biometricEnrollmentOfferProvider.notifier)
+          .offer(username, password);
       context.go('/dashboard');
     } on ApiException catch (error) {
       if (mounted) showGlobalSnack( error.message, error: true);
@@ -365,6 +428,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
 
   /// 登录表单。
   Widget _buildLoginForm() {
+    final biometric = ref.watch(biometricLoginProvider).value;
     return Form(
       key: _loginFormKey,
       child: Column(
@@ -431,9 +495,35 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                   )
                 : const Text('登录'),
           ),
+          if (biometric != null && biometric.enabled) ...[
+            const SizedBox(height: 12),
+            OutlinedButton.icon(
+              onPressed: _submitting || _biometricRunning
+                  ? null
+                  : () => _loginWithBiometric(),
+              style: OutlinedButton.styleFrom(
+                padding: const EdgeInsets.symmetric(vertical: 13),
+              ),
+              icon: _biometricRunning
+                  ? const SizedBox(
+                      width: 18,
+                      height: 18,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    )
+                  : Icon(_biometricIcon(biometric)),
+              label: Text(biometric.loginLabel),
+            ),
+          ],
         ],
       ),
     );
+  }
+
+  /// 生物识别登录按钮图标。
+  IconData _biometricIcon(BiometricLoginState state) {
+    if (state.usesFace) return Icons.face_retouching_natural;
+    if (state.usesFingerprint) return Icons.fingerprint;
+    return Icons.password_rounded;
   }
 
   /// 初始化博客表单。

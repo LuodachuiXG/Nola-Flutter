@@ -33,6 +33,10 @@ dependencies:
   package_info_plus: ^9.0.1
   # 打开开源仓库等外部链接
   url_launcher: ^6.3.3
+  # 生物识别 / 设备密码登录（Face ID、指纹、锁屏密码）
+  local_auth: ^3.0.2
+  # 账号密码等敏感信息的系统级加密存储（Keychain / Keystore）
+  flutter_secure_storage: ^10.3.4
   window_manager: 0.5.1
 
 dev_dependencies:

@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../features/auth/providers/auth_providers.dart';
+import '../features/auth/ui/biometric_enrollment_prompt.dart';
 import '../features/auth/ui/login_screen.dart';
 import '../features/shell/ui/console_shell.dart';
 import '../features/dashboard/ui/dashboard_screen.dart';
@@ -45,7 +46,9 @@ final routerProvider = Provider<GoRouter>((ref) {
         builder: (context, state) => const LoginScreen(),
       ),
       ShellRoute(
-        builder: (context, state, child) => ConsoleShell(child: child),
+        builder: (context, state, child) => BiometricEnrollmentPrompt(
+          child: ConsoleShell(child: child),
+        ),
         routes: [
           GoRoute(
             path: '/dashboard',

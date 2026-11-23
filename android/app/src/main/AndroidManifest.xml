@@ -3,6 +3,8 @@
          注意 debug/profile 的 manifest 里各有一份仅供开发热重载使用，
          release 构建只合并 main，这里必须显式声明。 -->
     <uses-permission android:name="android.permission.INTERNET"/>
+    <!-- 生物识别 / 设备密码登录（local_auth） -->
+    <uses-permission android:name="android.permission.USE_BIOMETRIC"/>
     <!-- 允许连接用户自建的 http:// 服务器（默认地址即为 http，无法预置域名白名单） -->
     <application
         android:label="Nola"

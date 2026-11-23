@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../constants/app_constants.dart';
+import '../utils/server_url.dart';
 
 /// 本地持久化存储，负责服务器地址、登录令牌与用户信息的读写。
 class LocalStorage {
@@ -73,6 +74,70 @@ class LocalStorage {
   /// 保存服务器地址列表。
   Future<void> setSavedServers(List<String> urls) =>
       _prefs.setString(StorageKeys.savedServers, jsonEncode(urls));
+
+  /// 指定服务器的生物识别登录偏好（不含密码，密码在安全存储中）。
+  BiometricLoginPrefs biometricLoginPrefs(String serverUrl) {
+    final raw = _biometricPrefsMap()[normalizeServerUrl(serverUrl)];
+    if (raw is Map) {
+      return BiometricLoginPrefs.fromJson(
+        Map<String, dynamic>.from(raw),
+      );
+    }
+    return const BiometricLoginPrefs();
+  }
+
+  /// 保存指定服务器的生物识别登录偏好。
+  Future<void> setBiometricLoginPrefs(
+    String serverUrl,
+    BiometricLoginPrefs prefs,
+  ) {
+    final map = _biometricPrefsMap()
+      ..[normalizeServerUrl(serverUrl)] = prefs.toJson();
+    return _prefs.setString(StorageKeys.biometric, jsonEncode(map));
+  }
+
+  Map<String, dynamic> _biometricPrefsMap() {
+    final json = _prefs.getString(StorageKeys.biometric);
+    if (json == null) return <String, dynamic>{};
+    try {
+      final decoded = jsonDecode(json);
+      if (decoded is Map) return Map<String, dynamic>.from(decoded);
+    } catch (_) {
+      // 存储数据损坏时按无记录处理
+    }
+    return <String, dynamic>{};
+  }
+}
+
+/// 生物识别登录偏好（按服务器隔离保存，不含密码）。
+class BiometricLoginPrefs {
+  const BiometricLoginPrefs({
+    this.enabled = false,
+    this.username,
+    this.declined = false,
+  });
+
+  /// 是否已启用（对应安全存储中存在凭据）。
+  final bool enabled;
+
+  /// 已保存的账号名。
+  final String? username;
+
+  /// 用户是否拒绝过启用提示（避免每次登录重复弹窗）。
+  final bool declined;
+
+  factory BiometricLoginPrefs.fromJson(Map<String, dynamic> json) =>
+      BiometricLoginPrefs(
+        enabled: json['enabled'] as bool? ?? false,
+        username: json['username'] as String?,
+        declined: json['declined'] as bool? ?? false,
+      );
+
+  Map<String, dynamic> toJson() => {
+        'enabled': enabled,
+        if (username != null) 'username': username,
+        'declined': declined,
+      };
 }
 
 /// [LocalStorage] 的 Riverpod 提供者。
