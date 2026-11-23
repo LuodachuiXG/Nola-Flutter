@@ -41,6 +41,8 @@ dev_dependencies:
   flutter_launcher_icons: ^0.14.4
   # 图标资产处理（生成自适应图标前景）
   image: ^4.5.0
+  # 编辑器预览测试中替换 WebView 平台实现
+  webview_flutter_platform_interface: ^2.15.1
 
 # 应用图标生成配置（dart run flutter_launcher_icons）
 flutter_launcher_icons:

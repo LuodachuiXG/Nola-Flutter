@@ -187,6 +187,23 @@ class _EditorBodyState extends ConsumerState<_EditorBody> {
   /// 窄屏模式切向预览前记录下的编辑器滚动比例。
   double _editorFractionAtSwitch = 0;
 
+  /// 编辑器最近一次滚动比例（无论同步开关与否都记录），
+  /// 用于宽窄布局切换后恢复阅读位置。
+  double _editorFraction = 0;
+
+  /// 布局切换后待恢复的编辑器滚动比例；非空期间忽略编辑器滚动事件，
+  /// 避免重排过程中被裁切的位置覆盖待恢复目标。
+  double? _pendingEditorRestore;
+
+  /// 上一次构建时的宽屏状态，用于检测分屏断点切换。
+  bool? _lastWideLayout;
+
+  /// 编辑器首次挂载时窗口是否为宽屏，决定是否自动聚焦。
+  ///
+  /// 首次挂载后保持不变：布局切换时若改为聚焦会触发光标滚动，
+  /// 抢走刚恢复的阅读位置。
+  bool? _autofocusEditor;
+
   /// 最近一次编辑器主动滚动的时间，用于方向锁：
   /// 编辑器拖动 / 惯性滚动期间忽略预览侧回报，避免 jumpTo 打断惯性动画。
   DateTime _lastUserEditorScroll = DateTime.fromMillisecondsSinceEpoch(0);
@@ -210,8 +227,20 @@ class _EditorBodyState extends ConsumerState<_EditorBody> {
   @override
   void initState() {
     super.initState();
-    _controller = TextEditingController(text: widget.state.content);
+    // 光标置于开头：否则自动聚焦时会把光标滚动到文末，打开文章即停在底部
+    _controller = TextEditingController.fromValue(
+      TextEditingValue(
+        text: widget.state.content,
+        selection: const TextSelection.collapsed(offset: 0),
+      ),
+    );
     _autoSaveTimer = Timer.periodic(_autoSaveInterval, (_) => _autoSave());
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    _autofocusEditor ??= MediaQuery.sizeOf(context).width >= _wideBreakpoint;
   }
 
   @override
@@ -221,7 +250,11 @@ class _EditorBodyState extends ConsumerState<_EditorBody> {
     final switchedTab = widget.state.tab != oldWidget.state.tab ||
         widget.state.draftName != oldWidget.state.draftName;
     if (switchedTab && widget.state.content != _controller.text) {
-      _controller.text = widget.state.content;
+      // 切换正文 / 草稿后同样把光标置于开头，从文章顶部开始显示
+      _controller.value = TextEditingValue(
+        text: widget.state.content,
+        selection: const TextSelection.collapsed(offset: 0),
+      );
     }
   }
 
@@ -236,14 +269,79 @@ class _EditorBodyState extends ConsumerState<_EditorBody> {
   /// 编辑器滚动时，按比例同步预览位置。
   void _onEditorScroll() {
     if (_applyingExternalScroll || !_editorScroll.hasClients) return;
+    // 布局切换后的位置恢复完成前，忽略重排产生的滚动事件
+    if (_pendingEditorRestore != null) return;
     final position = _editorScroll.position;
     if (!position.hasContentDimensions || position.maxScrollExtent <= 0) return;
     final fraction = (position.pixels / position.maxScrollExtent)
         .clamp(0.0, 1.0)
         .toDouble();
+    _editorFraction = fraction;
     _lastUserEditorScroll = DateTime.now();
     if (!_syncScrollEnabled) return;
     _previewKey.currentState?.notifyEditorScroll(fraction);
+  }
+
+  /// 读取编辑器当前滚动比例；编辑器未挂载时回退到最近记录值。
+  double _currentEditorFraction() {
+    if (_editorScroll.hasClients) {
+      final position = _editorScroll.position;
+      if (position.hasContentDimensions && position.maxScrollExtent > 0) {
+        return (position.pixels / position.maxScrollExtent)
+            .clamp(0.0, 1.0)
+            .toDouble();
+      }
+    }
+    return _editorFraction;
+  }
+
+  /// 窄屏 / 宽屏分屏切换时编辑框宽度变化、内容重排，
+  /// 像素级滚动值会漂移或被裁切；记录切换前的比例并在新布局完成后恢复。
+  void _handleLayoutChanged(bool wide) {
+    final previous = _lastWideLayout;
+    if (previous == wide) return;
+    _lastWideLayout = wide;
+    // 首次构建没有历史位置，交给编辑框自身决定初始滚动
+    if (previous == null) return;
+    // 本帧构建时旧布局仍挂载，可读到切换前的真实位置；
+    // 窄屏预览态下以预览的阅读位置为准
+    _editorFraction =
+        _previewing ? _lastPreviewFraction : _currentEditorFraction();
+    _pendingEditorRestore = _editorFraction;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      _restoreEditorScroll();
+    });
+  }
+
+  /// 在新布局完成布局后，把编辑器滚动恢复到切换前的比例。
+  void _restoreEditorScroll() {
+    final target = _pendingEditorRestore;
+    if (target == null) return;
+    _pendingEditorRestore = null;
+    _editorFraction = target;
+    if (!_editorScroll.hasClients) return;
+    final position = _editorScroll.position;
+    if (!position.hasContentDimensions || position.maxScrollExtent <= 0) return;
+    _applyingExternalScroll = true;
+    try {
+      position.jumpTo(target * position.maxScrollExtent);
+    } finally {
+      _applyingExternalScroll = false;
+    }
+    if (_syncScrollEnabled) {
+      _previewKey.currentState?.notifyEditorScroll(target);
+    }
+  }
+
+  /// 切换滚动同步开关；开启后立即以编辑器为准同步一次预览。
+  void _setSyncScrollEnabled(bool enabled) {
+    setState(() => _syncScrollEnabled = enabled);
+    if (!enabled) return;
+    _previewKey.currentState?.notifyEditorScroll(
+      _currentEditorFraction(),
+      immediate: true,
+    );
   }
 
   /// 预览滚动回报时，按比例同步编辑器位置。
@@ -281,11 +379,14 @@ class _EditorBodyState extends ConsumerState<_EditorBody> {
               .toDouble();
         }
       }
+      // 预览未上报滚动前，先以切过去的位置作为预览阅读位置
+      _lastPreviewFraction = _editorFractionAtSwitch;
     } else {
       // 切回编辑：按预览停留的位置恢复编辑器滚动
       final target = _lastPreviewFraction;
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (!mounted) return;
+        _editorFraction = target;
         _applyingExternalScroll = true;
         try {
           if (_editorScroll.hasClients) {
@@ -340,6 +441,7 @@ class _EditorBodyState extends ConsumerState<_EditorBody> {
     final state = widget.state;
     final notifier = ref.read(postEditorProvider(widget.postId).notifier);
     final wide = MediaQuery.sizeOf(context).width >= _wideBreakpoint;
+    _handleLayoutChanged(wide);
 
     return CallbackShortcuts(
       bindings: {
@@ -391,19 +493,28 @@ class _EditorBodyState extends ConsumerState<_EditorBody> {
                     ],
                     // 宽屏分屏下的滚动同步开关
                     if (wide) ...[
-                      const SizedBox(width: 8),
-                      IconButton(
-                        tooltip: _syncScrollEnabled
-                            ? '滚动同步（已开启）'
-                            : '滚动同步（已关闭）',
-                        isSelected: _syncScrollEnabled,
-                        icon: const Icon(Icons.sync_alt),
-                        selectedIcon: Icon(
-                          Icons.sync_alt,
-                          color: theme.colorScheme.primary,
-                        ),
-                        onPressed: () => setState(
-                          () => _syncScrollEnabled = !_syncScrollEnabled,
+                      const SizedBox(width: 12),
+                      Tooltip(
+                        message: _syncScrollEnabled
+                            ? '滚动同步已开启：预览跟随编辑器滚动'
+                            : '滚动同步已关闭：预览可独立滚动',
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Text(
+                              '滚动同步',
+                              style: theme.textTheme.labelMedium?.copyWith(
+                                color: theme.colorScheme.onSurfaceVariant,
+                              ),
+                            ),
+                            const SizedBox(width: 4),
+                            Switch(
+                              value: _syncScrollEnabled,
+                              onChanged: _setSyncScrollEnabled,
+                              materialTapTargetSize:
+                                  MaterialTapTargetSize.shrinkWrap,
+                            ),
+                          ],
                         ),
                       ),
                     ],
@@ -420,14 +531,18 @@ class _EditorBodyState extends ConsumerState<_EditorBody> {
               Expanded(
                 child: state.loadingContent
                     ? const Center(child: CircularProgressIndicator())
-                    : wide
-                        ? _SplitEditor(
-                            editor: _buildEditorField(autofocus: true),
-                            preview: _buildPreview(),
+                    : !wide && _previewing
+                        ? _buildPreview(
+                            initialScrollFraction: _pendingEditorRestore ??
+                                _lastPreviewFraction,
                           )
-                        : _previewing
-                            ? _buildPreview()
-                            : _buildEditorField(autofocus: false),
+                        : _SplitEditor(
+                            editor: _buildEditorField(),
+                            preview: _buildPreview(
+                              initialScrollFraction: _pendingEditorRestore,
+                            ),
+                            split: wide,
+                          ),
               ),
             ],
           ),
@@ -444,13 +559,13 @@ class _EditorBodyState extends ConsumerState<_EditorBody> {
   }
 
   /// 构建 Markdown 源码编辑框。
-  Widget _buildEditorField({required bool autofocus}) {
+  Widget _buildEditorField() {
     return Padding(
       padding: const EdgeInsets.all(12),
       child: TextField(
         controller: _controller,
         scrollController: _editorScroll,
-        autofocus: autofocus,
+        autofocus: _autofocusEditor ?? false,
         maxLines: null,
         expands: true,
         textAlignVertical: TextAlignVertical.top,
@@ -473,7 +588,7 @@ class _EditorBodyState extends ConsumerState<_EditorBody> {
   }
 
   /// 构建 Markdown 实时预览。
-  Widget _buildPreview() {
+  Widget _buildPreview({double? initialScrollFraction}) {
     return Padding(
       padding: const EdgeInsets.all(12),
       child: ClipRRect(
@@ -481,7 +596,8 @@ class _EditorBodyState extends ConsumerState<_EditorBody> {
         child: MarkdownPreviewView(
           key: _previewKey,
           content: widget.state.content,
-          initialScrollFraction: _editorFractionAtSwitch,
+          initialScrollFraction:
+              initialScrollFraction ?? _editorFractionAtSwitch,
           onPreviewScroll: _onPreviewScroll,
         ),
       ),
@@ -505,13 +621,23 @@ class _EditorBodyState extends ConsumerState<_EditorBody> {
   }
 }
 
-/// 宽屏分屏编辑器：左侧 Markdown 源码、右侧实时预览，
-/// 中间分割线可拖动，手动调整左右两侧宽度。
+/// 编辑器窗格：窄屏时单栏编辑（[split] 为 false），宽屏时左侧源码、
+/// 右侧实时预览，中间分割线可拖动调整两侧宽度。
+///
+/// 窄屏与宽屏都让编辑器占据 Row 的首个子项，切换断点时编辑器元素不会
+/// 重建，滚动位置与焦点得以保留。
 class _SplitEditor extends StatefulWidget {
-  const _SplitEditor({required this.editor, required this.preview});
+  const _SplitEditor({
+    required this.editor,
+    required this.preview,
+    required this.split,
+  });
 
   final Widget editor;
   final Widget preview;
+
+  /// 是否显示右侧预览并启用可拖动的分割线。
+  final bool split;
 
   @override
   State<_SplitEditor> createState() => _SplitEditorState();
@@ -542,37 +668,42 @@ class _SplitEditorState extends State<_SplitEditor> {
     return LayoutBuilder(
       builder: (context, constraints) {
         final maxWidth = constraints.maxWidth;
-        final leftWidth = _clamp(
-          maxWidth * _leftRatio - _dividerWidth / 2,
-          _minPaneWidth,
-          maxWidth - _minPaneWidth - _dividerWidth,
-        );
+        final leftWidth = widget.split
+            ? _clamp(
+                maxWidth * _leftRatio - _dividerWidth / 2,
+                _minPaneWidth,
+                maxWidth - _minPaneWidth - _dividerWidth,
+              )
+            : maxWidth;
         return Row(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
             SizedBox(width: leftWidth, child: widget.editor),
-            GestureDetector(
-              behavior: HitTestBehavior.opaque,
-              onHorizontalDragUpdate: (details) =>
-                  _handleDrag(details.delta.dx, maxWidth),
-              child: MouseRegion(
-                cursor: SystemMouseCursors.resizeLeftRight,
-                child: SizedBox(
-                  width: _dividerWidth,
-                  height: double.infinity,
-                  child: Center(
-                    child: Container(
-                      width: 4,
-                      height: 48,
-                      decoration: BoxDecoration(
-                        color: theme.colorScheme.outlineVariant,
-                        borderRadius: BorderRadius.circular(2),
+            if (widget.split) ...[
+              GestureDetector(
+                behavior: HitTestBehavior.opaque,
+                onHorizontalDragUpdate: (details) =>
+                    _handleDrag(details.delta.dx, maxWidth),
+                child: MouseRegion(
+                  cursor: SystemMouseCursors.resizeLeftRight,
+                  child: SizedBox(
+                    width: _dividerWidth,
+                    height: double.infinity,
+                    child: Center(
+                      child: Container(
+                        width: 4,
+                        height: 48,
+                        decoration: BoxDecoration(
+                          color: theme.colorScheme.outlineVariant,
+                          borderRadius: BorderRadius.circular(2),
+                        ),
                       ),
                     ),
                   ),
                 ),
               ),
-            ),
-            Expanded(child: widget.preview),
+              Expanded(child: widget.preview),
+            ],
           ],
         );
       },

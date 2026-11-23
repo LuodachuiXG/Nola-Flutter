@@ -20,7 +20,7 @@ bool get _previewSupported =>
 /// macOS 的 JS 桥每次调用开销很大（且当前版本有缺陷）：过小会拖垮编辑器
 /// 的惯性滚动，过大则预览跟随发虚卡顿。默认 33ms（约 30 次/秒），
 /// 可按实际手感整体调整这一个值。
-const Duration kPreviewScrollSyncInterval = Duration(milliseconds: 33);
+const Duration kPreviewScrollSyncInterval = Duration(milliseconds: 0);
 
 /// Markdown 预览视图（WebView 渲染，与 Nola-Apple 实现保持一致）。
 ///
@@ -188,8 +188,25 @@ class MarkdownPreviewViewState extends State<MarkdownPreviewView> {
   /// 桥接正常的平台直接调用页面内的 `window.__scrollToFraction`；
   /// macOS 桥损坏时调用无效果，滚动位置会在下次烘焙重载时通过
   /// 内嵌脚本恢复。
-  void notifyEditorScroll(double fraction) {
+  ///
+  /// [immediate] 为 true 时跳过节流立即定位（用于开启滚动同步等一次性
+  /// 操作）；macOS 烘焙重载管线没有可用的 JS 桥，直接重载文档以生效。
+  void notifyEditorScroll(double fraction, {bool immediate = false}) {
     _lastScrollFraction = fraction;
+    if (immediate) {
+      // 页面尚未加载完成时，加载流程会按 _lastScrollFraction 恢复位置
+      if (!_pageLoaded) return;
+      if (_useReloadPipeline) {
+        _reloadDebounce?.cancel();
+        _reload();
+      } else {
+        _pendingScrollFraction = null;
+        _scrollSyncThrottle?.cancel();
+        _scrollSyncThrottle = null;
+        _dispatchScrollToPreview(fraction);
+      }
+      return;
+    }
     final now = DateTime.now().millisecondsSinceEpoch;
     if (now - _lastScrollDispatchMs < kPreviewScrollSyncInterval.inMilliseconds) {
       // 节流窗口内只记录最新比例，窗口结束后补发
