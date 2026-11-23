@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../core/models/diary.dart';
 import '../../../core/models/enums.dart';
 import '../../../core/network/api_exception.dart';
+import '../../../shared/utils/external_link.dart';
 import '../../../shared/widgets/dialogs.dart';
 import '../../../shared/widgets/paged_list_view.dart';
 import '../../shell/ui/console_shell.dart';
@@ -206,6 +207,8 @@ class _LinkTile extends ConsumerWidget {
       margin: const EdgeInsets.only(bottom: 10),
       clipBehavior: Clip.antiAlias,
       child: ListTile(
+        // 点击友链卡片用浏览器打开对应站点
+        onTap: () => openExternalUrl(context, link.url),
         leading: link.logo != null && link.logo!.isNotEmpty
             ? ClipRRect(
                 borderRadius: BorderRadius.circular(24),
@@ -259,13 +262,25 @@ class _LinkTile extends ConsumerWidget {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             const SizedBox(height: 2),
-            Text(
-              link.url,
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: theme.textTheme.bodySmall?.copyWith(
-                color: theme.colorScheme.primary,
-              ),
+            Row(
+              children: [
+                Flexible(
+                  child: Text(
+                    link.url,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: theme.textTheme.bodySmall?.copyWith(
+                      color: theme.colorScheme.primary,
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 4),
+                Icon(
+                  Icons.open_in_new_rounded,
+                  size: 14,
+                  color: theme.colorScheme.primary,
+                ),
+              ],
             ),
             if (link.description?.isNotEmpty ?? false)
               Text(
