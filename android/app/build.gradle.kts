@@ -36,7 +36,9 @@ android {
         versionCode = flutter.versionCode
         versionName = flutter.versionName
 
-        // 仅保留 64 位 ARM（去掉 x86 / x86_64 模拟器与 armeabi-v7a 旧机型）
+        // 仅保留 64 位 ARM（去掉 x86 / x86_64 模拟器与 armeabi-v7a 旧机型）。
+        // 注意：Flutter 引擎库（libflutter/libapp）不受 abiFilters 约束，
+        // release 构建需配合 --target-platform android-arm64 才能真正只打 arm64。
         ndk {
             abiFilters += listOf("arm64-v8a")
         }
@@ -67,6 +69,16 @@ android {
             } else {
                 signingConfigs.getByName("debug")
             }
+        }
+    }
+
+    packaging {
+        jniLibs {
+            // 压缩存储 .so（AGP 9 的 useLegacyPackaging=true 即“压缩 .so 并安装时解包”），
+            // 引擎库压缩后约为原来的一半，APK 下载体积显著减小；代价是安装时解包、磁盘占用略增。
+            // 注意语义：false/不设置 = 不压缩+页对齐（配合 extractNativeLibs="false" 免解包），
+            // 两者互斥，本项目优先小体积，故用 true。
+            useLegacyPackaging = true
         }
     }
 }

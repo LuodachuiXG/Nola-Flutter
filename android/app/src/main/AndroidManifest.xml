@@ -1,8 +1,14 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <!-- 联网必需：登录、文章同步等全部网络请求都依赖该权限。
+         注意 debug/profile 的 manifest 里各有一份仅供开发热重载使用，
+         release 构建只合并 main，这里必须显式声明。 -->
+    <uses-permission android:name="android.permission.INTERNET"/>
+    <!-- 允许连接用户自建的 http:// 服务器（默认地址即为 http，无法预置域名白名单） -->
     <application
         android:label="Nola"
         android:name="${applicationName}"
-        android:icon="@mipmap/ic_launcher">
+        android:icon="@mipmap/ic_launcher"
+        android:usesCleartextTraffic="true">
         <activity
             android:name=".MainActivity"
             android:exported="true"
