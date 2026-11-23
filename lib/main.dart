@@ -17,7 +17,7 @@ Future<void> main() async {
     SemanticsBinding.instance.ensureSemantics();
   }
 
-  // 桌面端（Windows / Linux）隐藏系统标题栏，使用自绘标题栏。
+  // 桌面端隐藏系统标题栏，使用自绘标题栏；macOS 保留原生红绿灯按钮。
   await window.initDesktopWindow();
 
   // 初始化本地存储，注入 Riverpod 容器

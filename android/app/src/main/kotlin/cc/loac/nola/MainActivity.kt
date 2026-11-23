@@ -1,4 +1,4 @@
-package com.example.nola
+package cc.loac.nola
 
 import io.flutter.embedding.android.FlutterActivity
 

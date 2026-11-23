@@ -4,10 +4,10 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:window_manager/window_manager.dart';
 
-/// 是否使用自绘标题栏：Windows / Linux 隐藏系统标题栏自绘，
-/// macOS 保留原生标题栏（红绿灯按钮），Web / 移动端不适用。
+/// 是否使用自绘标题栏：Windows / Linux / macOS 隐藏系统标题栏自绘，
+/// macOS 保留左上角原生红绿灯按钮，Web / 移动端不适用。
 final bool kCustomTitleBar =
-    !kIsWeb && (Platform.isWindows || Platform.isLinux);
+    !kIsWeb && (Platform.isWindows || Platform.isLinux || Platform.isMacOS);
 
 /// 桌面窗口初始化：隐藏系统标题栏、设置默认尺寸并居中显示。
 ///
@@ -15,12 +15,13 @@ final bool kCustomTitleBar =
 Future<void> initDesktopWindow() async {
   if (!kCustomTitleBar) return;
   await windowManager.ensureInitialized();
-  const options = WindowOptions(
+  final options = WindowOptions(
     size: Size(1280, 800),
     minimumSize: Size(520, 400),
     center: true,
     title: 'Nola 控制台',
     titleBarStyle: TitleBarStyle.hidden,
+    windowButtonVisibility: Platform.isMacOS,
   );
   await windowManager.waitUntilReadyToShow(options, () async {
     await windowManager.show();
@@ -28,8 +29,8 @@ Future<void> initDesktopWindow() async {
   });
 }
 
-/// 自绘窗口标题栏：整栏可拖动移动窗口，双击最大化 / 还原，
-/// 右侧提供最小化、最大化（还原）、关闭三个窗口控制按钮。
+/// 自绘窗口标题栏：整栏可拖动移动窗口，双击最大化 / 还原。
+/// Windows / Linux 在右侧绘制窗口控制按钮，macOS 使用左上角原生按钮。
 class WindowTitleBar extends StatefulWidget {
   const WindowTitleBar({super.key});
 
@@ -43,6 +44,7 @@ class _WindowTitleBarState extends State<WindowTitleBar> with WindowListener {
   @override
   void initState() {
     super.initState();
+    if (!kCustomTitleBar) return;
     windowManager.addListener(this);
     windowManager.isMaximized().then((value) {
       if (mounted) {
@@ -78,8 +80,11 @@ class _WindowTitleBarState extends State<WindowTitleBar> with WindowListener {
 
   @override
   Widget build(BuildContext context) {
+    if (!kCustomTitleBar) return const SizedBox.shrink();
+
     final theme = Theme.of(context);
     final colorScheme = theme.colorScheme;
+    final isMacOS = Platform.isMacOS;
     return Material(
       // 沉浸式：与内容面板同色，无分割线。
       color: colorScheme.surface,
@@ -92,7 +97,8 @@ class _WindowTitleBarState extends State<WindowTitleBar> with WindowListener {
               child: DragToMoveArea(
                 child: Row(
                   children: [
-                    const SizedBox(width: 14),
+                    // 为 macOS 左上角的原生红绿灯按钮预留空间。
+                    SizedBox(width: isMacOS ? 80 : 14),
                     Image.asset('assets/nola_logo.png', width: 16, height: 16),
                     const SizedBox(width: 8),
                     Text(
@@ -106,19 +112,21 @@ class _WindowTitleBarState extends State<WindowTitleBar> with WindowListener {
               ),
             ),
             // 窗口按钮独立于拖拽区：避免双击手势识别器（~300ms 单击仲裁）造成按钮响应延迟。
-            _WindowButton(
-              icon: Icons.remove,
-              onPressed: windowManager.minimize,
-            ),
-            _WindowButton(
-              icon: _maximized ? Icons.filter_none : Icons.crop_square,
-              onPressed: _toggleMaximize,
-            ),
-            _WindowButton(
-              icon: Icons.close,
-              onPressed: windowManager.close,
-              isCloseButton: true,
-            ),
+            if (!isMacOS) ...[
+              _WindowButton(
+                icon: Icons.remove,
+                onPressed: windowManager.minimize,
+              ),
+              _WindowButton(
+                icon: _maximized ? Icons.filter_none : Icons.crop_square,
+                onPressed: _toggleMaximize,
+              ),
+              _WindowButton(
+                icon: Icons.close,
+                onPressed: windowManager.close,
+                isCloseButton: true,
+              ),
+            ],
           ],
         ),
       ),
