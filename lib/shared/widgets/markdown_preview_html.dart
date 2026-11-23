@@ -57,6 +57,42 @@ String encodeJsStringLiteral(String text) {
       .replaceAll('\u2029', '\\u2029');
 }
 
+/// 构建切换预览主题（暗色 / 亮色）的 JS 语句。
+///
+/// 与模板中的 `window.setPreviewDark` 对应：通过 `<html>` 根节点的
+/// `dark` class 驱动 Tailwind class 暗色模式（darkMode: 'class'），
+/// 使 WebView 预览与 Flutter 的亮暗主题保持一致（含强制亮 / 暗场景）。
+String buildSetDarkScript(bool dark) => 'window.setPreviewDark($dark);';
+
+/// 基于缓存的自包含 HTML，烘焙出一份可直接加载的最终文档。
+///
+/// - [dark] 为 true 时给 `<html>` 挂上 `dark` class（解析期即生效，
+///   不依赖 JS 桥，用于 macOS 等桥接不可信的环境）；
+/// - [content] 以页面内嵌脚本渲染（同样不依赖 JS 桥）；
+/// - [initialScrollFraction] 大于 0 时内嵌滚动恢复脚本。
+String buildPreviewDocument({
+  required String baseHtml,
+  required String content,
+  bool isMarkdown = true,
+  bool dark = false,
+  double initialScrollFraction = 0,
+}) {
+  var html = baseHtml;
+  if (dark) {
+    html = html.replaceFirst('<html>', '<html class="dark">');
+  }
+  // 标记主题已随文档烘焙，页面内的系统暗色回退不再生效
+  html = html.replaceFirst(
+    '<head>',
+    '<head><script>window.__themeBaked=true;</script>',
+  );
+  final buffer = StringBuffer(buildRenderScript(content, isMarkdown: isMarkdown));
+  if (initialScrollFraction > 0) {
+    buffer.write('window.__scrollToFraction($initialScrollFraction);');
+  }
+  return html.replaceFirst('</body>', '<script>$buffer</script></body>');
+}
+
 /// 构建注入内容的 JS 语句。
 ///
 /// [isMarkdown] 为 true 时走 Markdown 解析渲染，否则按 HTML 直出。

@@ -13,12 +13,38 @@
                 }
                 body {
                     font-family: -apple-system;
+                    /* 显式声明亮色背景：系统为暗色时 WebView 的 UA 画布默认是
+                       深色的，body 背景不设值会透出暗底，看起来就像“暗色模式” */
+                    background-color: #ffffff;
                 }
                 
-                @media (prefers-color-scheme: dark) {
-                    body {
-                        background-color: #1B1C20;
-                    }
+                /* 暗色主题：由 Flutter 通过 window.setPreviewDark / 烘焙的
+                   html.dark class 切换。引擎的 dark 变体只支持 media 模式，
+                   dark: 工具类不可靠，这里用静态 CSS 直接覆写排版变量
+                   （配色取自 typography 插件的 slate invert 主题）。 */
+                html.dark body {
+                    background-color: #1B1C20;
+                }
+                html.dark #content {
+                    background-color: #1B1C20;
+                }
+                html.dark .prose {
+                    --tw-prose-body: #cbd5e1;
+                    --tw-prose-headings: #ffffff;
+                    --tw-prose-lead: #94a3b8;
+                    --tw-prose-links: #ffffff;
+                    --tw-prose-bold: #ffffff;
+                    --tw-prose-counters: #94a3b8;
+                    --tw-prose-bullets: #475569;
+                    --tw-prose-hr: #334155;
+                    --tw-prose-quotes: #f1f5f9;
+                    --tw-prose-quote-borders: #334155;
+                    --tw-prose-captions: #94a3b8;
+                    --tw-prose-code: #ffffff;
+                    --tw-prose-pre-code: #cbd5e1;
+                    --tw-prose-pre-bg: rgb(0 0 0 / 50%);
+                    --tw-prose-th-borders: #475569;
+                    --tw-prose-td-borders: #334155;
                 }
                 code:not([class]) {
                     font-family: 'JetBrains Mono', monospace;
@@ -31,10 +57,10 @@
                     margin-right: 0.25rem;
                     background-color: #f7f7f9;
                     color: #ef4444;
-                    @media (prefers-color-scheme: dark) {
-                        background-color: #282c34;
-                        color: #abb2bf;
-                    }
+                }
+                html.dark code:not([class]) {
+                    background-color: #282c34;
+                    color: #abb2bf;
                 }
                 code:not([class])::before,
                 code:not([class])::after {
@@ -49,26 +75,32 @@
                 <script src="tailwind.forms.js"></script>
     </head>
     <body>
-        <div id="content" class="dark:bg-[#1B1C20] text-[3.5vw] p-10 max-w-full prose dark:prose-invert prose-pre:text-[3.5vw] prose-pre:shadow-2xl prose-code:font-['JetBrains_Mono'] prose-pre:rounded-2xl prose-pre:p-0 prose-pre:m-0 prose-pre:mb-5 prose-table:inline-block prose-table:p-2 prose-table:shadow prose-table:border-1 prose-table:rounded prose-table:border-gray-200 dark:prose-table:border-gray-600 prose-table:overflow-x-auto"></div>
+        <!-- 暗色完全由 html.dark class 驱动（模板 <style> 中的静态 CSS 覆写排版变量）。
+             注意：不要在此使用 dark: 前缀工具类——打包的 Tailwind v4 引擎的 dark 变体
+             只支持 media 模式（不支持 JS 配置与 @custom-variant），dark: 工具类只会
+             跟随系统配色，与 Flutter 主题脱节。 -->
+        <div id="content" class="text-[clamp(14px,3.5vw,16px)] p-10 max-w-full prose prose-pre:text-[clamp(12px,3vw,14px)] prose-pre:shadow-2xl prose-code:font-['JetBrains_Mono'] prose-pre:rounded-2xl prose-pre:p-0 prose-pre:m-0 prose-pre:mb-5 prose-table:inline-block prose-table:p-2 prose-table:shadow prose-table:border-1 prose-table:rounded prose-table:border-gray-200 prose-table:overflow-x-auto"></div>
         
         <script src="marked.min.js"></script>
-        
-        <script>
-            tailwind.config = {
-                darkMode: 'media',
-                theme: {
-                    extend: {},
-                }
-            }
-        </script>
-        
-        
+
         <script>
             window.onload = function() {
                 hljs.highlightAll();
             }
-            
-            
+
+            // Flutter 在页面加载后调用，显式切换暗色 class。
+            window.setPreviewDark = function(isDark) {
+                document.documentElement.classList.toggle('dark', isDark);
+            };
+
+            // 未被 Flutter 接管时（如浏览器直接打开样例页面），跟随系统配色；
+            // __themeBaked 表示主题已随文档烘焙（macOS 管线），不再跟随系统。
+            if (!window.__themeBaked && window.matchMedia &&
+                window.matchMedia('(prefers-color-scheme: dark)').matches) {
+                document.documentElement.classList.add('dark');
+            }
+
+
             window.renderMarkdown = function(markdownText) {
                 try {
                     document.getElementById('content').innerHTML = marked.parse(markdownText);
@@ -82,6 +114,22 @@
             window.renderHTML = function(htmlText) {
                 document.getElementById('content').innerHTML = htmlText;
             };
+
+            // 滚动同步：Flutter 编辑器 <-> 预览页。
+            // __scrollToFraction 由 Flutter 调用（含回声抑制）；
+            // 用户直接滚动预览页时通过 PreviewScroll 通道回报比例。
+            window.__scrollToFraction = function(f) {
+                var max = document.documentElement.scrollHeight - window.innerHeight;
+                window.__suppressScrollReport = true;
+                window.scrollTo(0, Math.max(0, max) * f);
+                setTimeout(function() { window.__suppressScrollReport = false; }, 150);
+            };
+            window.addEventListener('scroll', function() {
+                if (window.__suppressScrollReport) return;
+                if (typeof PreviewScroll === 'undefined') return;
+                var max = document.documentElement.scrollHeight - window.innerHeight;
+                PreviewScroll.postMessage(String(max > 0 ? window.scrollY / max : 0));
+            });
         </script>
     </body>
 </html>

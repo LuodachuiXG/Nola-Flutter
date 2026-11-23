@@ -198,11 +198,18 @@ class PostEditorNotifier extends AsyncNotifier<EditorState> {
       return;
     }
     state = AsyncData(current.copyWith(saving: true));
+    final content = current.content;
     try {
-      await ref.read(postApiProvider).updatePublish(postId, current.content);
+      await ref.read(postApiProvider).updatePublish(postId, content);
       final contents = await ref.read(postApiProvider).postContents(postId);
+      // 保存期间用户可能继续输入：以最新文本回写 dirty，避免误标为已保存
+      final latest = state.value ?? current;
       state = AsyncData(
-        current.copyWith(saving: false, dirty: false, contents: contents),
+        latest.copyWith(
+          saving: false,
+          dirty: latest.content != content,
+          contents: contents,
+        ),
       );
     } catch (_) {
       // 失败时保留原数据并抛出：若置为 AsyncError 会丢失 value，
@@ -265,6 +272,7 @@ class PostEditorNotifier extends AsyncNotifier<EditorState> {
     final current = state.value;
     if (current == null || current.saving) return;
     state = AsyncData(current.copyWith(saving: true));
+    final content = current.content;
     try {
       if (current.tab == EditorTab.draft && current.draftName == draftName) {
         // 更新当前草稿
@@ -282,13 +290,15 @@ class PostEditorNotifier extends AsyncNotifier<EditorState> {
             );
       }
       final contents = await ref.read(postApiProvider).postContents(postId);
+      // 保存期间用户可能继续输入：以最新文本回写 dirty，避免误标为已保存
+      final latest = state.value ?? current;
       state = AsyncData(
-        current.copyWith(
+        latest.copyWith(
           saving: false,
           contents: contents,
           tab: EditorTab.draft,
           draftName: draftName,
-          dirty: false,
+          dirty: latest.content != content,
         ),
       );
     } catch (_) {

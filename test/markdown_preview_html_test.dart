@@ -77,6 +77,29 @@ void main() {
     );
   });
 
+  test('buildSetDarkScript 生成主题切换语句', () {
+    expect(buildSetDarkScript(true), 'window.setPreviewDark(true);');
+    expect(buildSetDarkScript(false), 'window.setPreviewDark(false);');
+  });
+
+  test('buildPreviewDocument 烘焙暗色 class、内容与滚动恢复', () {
+    const base = '<html><head></head><body><div id="content"></div></body></html>';
+    final doc = buildPreviewDocument(
+      baseHtml: base,
+      content: '# Hi',
+      dark: true,
+      initialScrollFraction: 0.5,
+    );
+    expect(doc.startsWith('<html class="dark">'), isTrue);
+    expect(doc.contains('window.renderMarkdown("# Hi");'), isTrue);
+    expect(doc.contains('window.__scrollToFraction(0.5);'), isTrue);
+
+    // 亮色且不恢复滚动时不应注入对应内容
+    final light = buildPreviewDocument(baseHtml: base, content: '# Hi');
+    expect(light.contains('class="dark"'), isFalse);
+    expect(light.contains('__scrollToFraction'), isFalse);
+  });
+
   test('真实资产构建 HTML（内联字体与脚本）', () async {
     final html = await loadMarkdownPreviewHtml();
 
@@ -87,5 +110,14 @@ void main() {
     expect(html.contains('window.renderMarkdown'), isTrue);
     expect(html.contains('marked.parse'), isTrue);
     expect(html.contains('data:font/woff2;base64,'), isTrue);
+    // 暗色模式由 Flutter 显式驱动（html.dark 静态排版覆写 + setPreviewDark）
+    expect(html.contains('html.dark .prose'), isTrue);
+    expect(html.contains('window.setPreviewDark'), isTrue);
+    // 不再以媒体查询作为暗色开关，也没有失效的 JS 配置块
+    expect(html.contains("darkMode: 'media'"), isFalse);
+    expect(html.contains('tailwind.config ='), isFalse);
+    // 滚动同步辅助
+    expect(html.contains('window.__scrollToFraction'), isTrue);
+    expect(html.contains('PreviewScroll'), isTrue);
   });
 }
